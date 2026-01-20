@@ -30,7 +30,6 @@ Thumbs.db
 
 # Go
 vendor/
-go.sum
 
 # Logs
 *.log

@@ -1,0 +1,51 @@
+# Eraser Configuration Example
+# Copy this file to ~/.eraser/config.yaml and fill in your details
+
+profile:
+  # Required: Your personal information for removal requests
+  first_name: John
+  last_name: Doe
+  email: john.doe@example.com
+
+  # Optional: Additional info helps brokers locate your records
+  address: "123 Main Street"
+  city: "San Francisco"
+  state: "CA"
+  zip_code: "94102"
+  country: "USA"
+  phone: "+1-555-123-4567"
+  date_of_birth: "1990-01-15"  # Format: YYYY-MM-DD
+
+email:
+  # Email provider: "smtp" or "sendgrid"
+  provider: smtp
+  from: john.doe@example.com
+
+  # SMTP configuration (for Gmail, Outlook, etc.)
+  smtp:
+    host: smtp.gmail.com
+    port: 465
+    username: john.doe@gmail.com
+    password: your-app-password  # Use app password, not your regular password!
+    use_tls: true
+
+  # SendGrid configuration (alternative to SMTP)
+  # sendgrid:
+  #   api_key: SG.xxxxxxxxxxxxxxxxxxxx
+
+options:
+  # Template to use: "gdpr", "ccpa", or "generic"
+  template: generic
+
+  # Delay between emails in milliseconds (avoid spam filters)
+  rate_limit_ms: 2000
+
+  # Only send to brokers in these regions (optional)
+  # regions:
+  #   - us
+  #   - global
+
+  # Skip these brokers (optional)
+  # excluded_brokers:
+  #   - spokeo
+  #   - whitepages

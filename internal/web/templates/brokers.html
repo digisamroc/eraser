@@ -1,0 +1,522 @@
+{{define "content"}}
+<div class="fade-in-up">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="font-display text-3xl font-bold text-primary">Data Brokers</h1>
+            <p class="text-secondary mt-1">{{.Total}} brokers in database</p>
+        </div>
+        <button
+            id="send-all-btn"
+            class="btn btn-primary"
+            onclick="startSendAll()"
+        >
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+            </svg>
+            <span id="send-all-text">Send to All</span>
+            <span id="send-all-spinner" class="hidden">
+                <span class="spinner"></span>
+            </span>
+        </button>
+    </div>
+
+    <!-- Daily limit info banner -->
+    {{if gt .Filtered 250}}
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+        <div class="flex items-start gap-3">
+            <svg class="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <div>
+                <p class="text-blue-800 text-sm">
+                    <strong>Sending {{.Filtered}} emails will take multiple days.</strong>
+                    To avoid email provider rate limits, Eraser sends up to 250 emails per day.
+                    Remaining emails will automatically continue when you restart the app the next day.
+                </p>
+            </div>
+        </div>
+    </div>
+    {{end}}
+
+    <!-- Send progress area -->
+    <div id="send-all-progress" class="mb-6"></div>
+
+    <!-- Search and Filters -->
+    <div class="card p-4 mb-6">
+        <div class="flex flex-col md:flex-row gap-4">
+            <!-- Search Input -->
+            <div class="flex-1 relative">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+                <input
+                    type="text"
+                    id="broker-search"
+                    name="search"
+                    placeholder="Search brokers by name or email..."
+                    value="{{.Search}}"
+                    class="input pl-10"
+                    hx-get="/api/brokers"
+                    hx-trigger="keyup changed delay:300ms"
+                    hx-target="#broker-list"
+                    hx-include="[name='status'],[name='category'],[name='region']"
+                >
+            </div>
+
+            <!-- Filters -->
+            <div class="flex flex-wrap gap-3">
+                <select
+                    name="status"
+                    class="input w-auto min-w-[120px]"
+                    hx-get="/api/brokers"
+                    hx-trigger="change"
+                    hx-target="#broker-list"
+                    hx-include="#broker-search,[name='category'],[name='region']"
+                >
+                    <option value="">All Statuses</option>
+                    <option value="pending" {{if eq $.Status "pending"}}selected{{end}}>Pending</option>
+                    <option value="sent" {{if eq $.Status "sent"}}selected{{end}}>Sent</option>
+                    <option value="failed" {{if eq $.Status "failed"}}selected{{end}}>Failed</option>
+                </select>
+                <select
+                    name="category"
+                    class="input w-auto min-w-[140px]"
+                    hx-get="/api/brokers"
+                    hx-trigger="change"
+                    hx-target="#broker-list"
+                    hx-include="#broker-search,[name='status'],[name='region']"
+                >
+                    <option value="">All Categories</option>
+                    {{range .Categories}}
+                    <option value="{{.}}" {{if eq . $.Category}}selected{{end}}>{{.}}</option>
+                    {{end}}
+                </select>
+                <select
+                    name="region"
+                    class="input w-auto min-w-[120px]"
+                    hx-get="/api/brokers"
+                    hx-trigger="change"
+                    hx-target="#broker-list"
+                    hx-include="#broker-search,[name='status'],[name='category']"
+                >
+                    <option value="">All Regions</option>
+                    {{range .Regions}}
+                    <option value="{{.}}" {{if eq . $.Region}}selected{{end}}>{{.}}</option>
+                    {{end}}
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Broker Table -->
+    <div id="broker-list" class="card overflow-hidden">
+        <!-- Count header -->
+        <div class="px-4 py-3 border-b border-[var(--border)] bg-elevated">
+            <p class="text-sm text-secondary">Showing <span class="font-medium text-primary">{{.Filtered}}</span> of <span class="font-medium text-primary">{{.Total}}</span> brokers</p>
+        </div>
+
+        <!-- Desktop Table -->
+        <div class="hidden md:block overflow-x-auto">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Broker</th>
+                        <th>Category</th>
+                        <th>Region</th>
+                        <th>Status</th>
+                        <th class="text-right">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Brokers}}
+                    <tr>
+                        <td>
+                            <div class="flex flex-col">
+                                <span class="font-medium text-primary">{{.Name}}</span>
+                                <span class="text-sm text-muted">{{.Email}}</span>
+                            </div>
+                        </td>
+                        <td>
+                            {{if .Category}}
+                            <span class="badge badge-neutral">{{.Category}}</span>
+                            {{else}}
+                            <span class="text-muted">—</span>
+                            {{end}}
+                        </td>
+                        <td>
+                            {{if .Region}}
+                            <span class="text-secondary uppercase text-sm">{{.Region}}</span>
+                            {{else}}
+                            <span class="text-muted">—</span>
+                            {{end}}
+                        </td>
+                        <td id="status-{{.ID}}">
+                            {{if eq .Status "sent"}}
+                            <span class="badge badge-success">
+                                <span class="status-dot status-dot-success"></span>
+                                Sent
+                            </span>
+                            {{else if eq .Status "failed"}}
+                            <span class="badge badge-error">
+                                <span class="status-dot status-dot-error"></span>
+                                Failed
+                            </span>
+                            {{else}}
+                            <span class="badge badge-neutral">
+                                <span class="status-dot" style="background: var(--text-muted);"></span>
+                                Never sent
+                            </span>
+                            {{end}}
+                        </td>
+                        <td class="text-right">
+                            <div class="flex items-center justify-end gap-2">
+                                <button
+                                    class="btn btn-ghost text-sm py-1 px-3"
+                                    hx-post="/api/send/{{.ID}}"
+                                    hx-target="#status-{{.ID}}"
+                                    hx-swap="innerHTML"
+                                    hx-indicator="#spinner-{{.ID}}"
+                                >
+                                    Send
+                                    <span id="spinner-{{.ID}}" class="htmx-indicator ml-1">
+                                        <span class="spinner"></span>
+                                    </span>
+                                </button>
+                                {{if .OptOutURL}}
+                                <a href="{{.OptOutURL}}" target="_blank" class="btn btn-ghost text-sm py-1 px-3">
+                                    Opt-out
+                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                                    </svg>
+                                </a>
+                                {{end}}
+                            </div>
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr>
+                        <td colspan="5" class="py-12 text-center">
+                            <div class="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4" style="background: var(--bg-elevated);">
+                                <svg class="w-8 h-8 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                                </svg>
+                            </div>
+                            <p class="text-secondary mb-1">No brokers found</p>
+                            <p class="text-sm text-muted">Try adjusting your search or filters</p>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Mobile Cards -->
+        <div class="md:hidden divide-y divide-[var(--border-subtle)]">
+            {{range .Brokers}}
+            <div class="p-4">
+                <div class="flex items-start justify-between mb-3">
+                    <div>
+                        <h3 class="font-medium text-primary">{{.Name}}</h3>
+                        <p class="text-sm text-muted">{{.Email}}</p>
+                    </div>
+                    <div id="status-mobile-{{.ID}}">
+                        {{if eq .Status "sent"}}
+                        <span class="badge badge-success">Sent</span>
+                        {{else if eq .Status "failed"}}
+                        <span class="badge badge-error">Failed</span>
+                        {{else}}
+                        <span class="badge badge-neutral">Pending</span>
+                        {{end}}
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 mb-3 text-sm">
+                    {{if .Category}}
+                    <span class="badge badge-neutral">{{.Category}}</span>
+                    {{end}}
+                    {{if .Region}}
+                    <span class="text-muted uppercase">{{.Region}}</span>
+                    {{end}}
+                </div>
+                <div class="flex gap-2">
+                    <button
+                        class="btn btn-primary flex-1 py-2"
+                        hx-post="/api/send/{{.ID}}"
+                        hx-target="#status-mobile-{{.ID}}"
+                        hx-swap="innerHTML"
+                    >
+                        Send Request
+                    </button>
+                    {{if .OptOutURL}}
+                    <a href="{{.OptOutURL}}" target="_blank" class="btn btn-secondary py-2">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                        </svg>
+                    </a>
+                    {{end}}
+                </div>
+            </div>
+            {{else}}
+            <div class="p-8 text-center">
+                <div class="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4" style="background: var(--bg-elevated);">
+                    <svg class="w-8 h-8 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
+                </div>
+                <p class="text-secondary mb-1">No brokers found</p>
+                <p class="text-sm text-muted">Try adjusting your search or filters</p>
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Help text -->
+    <p class="text-center text-sm text-muted mt-6">
+        Use search and filters to narrow down the list before sending.
+    </p>
+</div>
+
+<script>
+let currentJobId = null;
+let pollInterval = null;
+
+// Check for active job on page load
+document.addEventListener('DOMContentLoaded', checkForActiveJob);
+
+async function checkForActiveJob() {
+    try {
+        const resp = await fetch('/api/job/active');
+        const data = await resp.json();
+        if (data.job && data.job.status === 'running') {
+            currentJobId = data.job.id;
+            showProgressUI();
+            updateProgressDisplay(data.job);
+            startPolling();
+        }
+    } catch (err) {
+        console.error('Error checking for active job:', err);
+    }
+}
+
+async function startSendAll() {
+    const btn = document.getElementById('send-all-btn');
+    const btnText = document.getElementById('send-all-text');
+    const spinner = document.getElementById('send-all-spinner');
+
+    // Disable button and show spinner
+    btn.disabled = true;
+    btnText.textContent = 'Starting...';
+    spinner.classList.remove('hidden');
+
+    // Get filter values
+    const search = document.getElementById('broker-search').value;
+    const category = document.querySelector('[name="category"]').value;
+    const region = document.querySelector('[name="region"]').value;
+
+    // Get CSRF token
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+    try {
+        const resp = await fetch('/api/send-all', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-Token': csrfToken
+            },
+            body: new URLSearchParams({ search, category, region })
+        });
+
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            showError(data.error || 'Failed to start sending');
+            resetButton();
+            return;
+        }
+
+        currentJobId = data.job_id;
+        showProgressUI();
+        startPolling();
+
+    } catch (err) {
+        showError('Network error: ' + err.message);
+        resetButton();
+    }
+}
+
+function showProgressUI() {
+    const progressArea = document.getElementById('send-all-progress');
+    progressArea.innerHTML = `
+        <div class="card p-4">
+            <div class="flex items-center justify-between mb-2">
+                <span class="font-medium text-primary">Sending emails...</span>
+                <button onclick="cancelJob()" class="btn btn-ghost text-sm py-1 px-3 text-red-600 hover:bg-red-50">
+                    Cancel
+                </button>
+            </div>
+            <div id="current-broker" class="text-sm text-secondary mb-2"></div>
+            <div class="w-full bg-gray-200 rounded-full h-2 mb-2">
+                <div id="progress-bar" class="bg-indigo-600 h-2 rounded-full transition-all" style="width: 0%"></div>
+            </div>
+            <div id="progress-text" class="text-xs text-muted">0 of 0 complete (0 sent, 0 failed)</div>
+        </div>
+    `;
+}
+
+function updateProgressDisplay(job) {
+    const currentBroker = document.getElementById('current-broker');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+
+    if (currentBroker) {
+        currentBroker.textContent = job.current_broker ? `Sending to: ${job.current_broker}` : '';
+    }
+    if (progressBar) {
+        progressBar.style.width = job.progress + '%';
+    }
+    if (progressText) {
+        const processed = job.sent + job.failed;
+        progressText.textContent = `${processed} of ${job.total} complete (${job.sent} sent, ${job.failed} failed)`;
+    }
+}
+
+function startPolling() {
+    // Poll every 1.5 seconds
+    pollInterval = setInterval(pollJobStatus, 1500);
+    // Also poll immediately
+    pollJobStatus();
+}
+
+async function pollJobStatus() {
+    if (!currentJobId) return;
+
+    try {
+        const resp = await fetch(`/api/job/${currentJobId}/status`);
+        const job = await resp.json();
+
+        updateProgressDisplay(job);
+
+        if (job.status === 'completed' || job.status === 'cancelled') {
+            stopPolling();
+            showCompletionMessage(job);
+            resetButton();
+            // Refresh broker list to show updated statuses
+            htmx.ajax('GET', '/api/brokers', {target: '#broker-list', swap: 'innerHTML'});
+        }
+    } catch (err) {
+        console.error('Error polling job status:', err);
+    }
+}
+
+function stopPolling() {
+    if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+    }
+}
+
+function showCompletionMessage(job) {
+    const progressArea = document.getElementById('send-all-progress');
+
+    // Handle auth errors with specific guidance
+    if (job.error_type === 'auth') {
+        progressArea.innerHTML = `
+            <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                <div class="flex items-start gap-3">
+                    <svg class="w-6 h-6 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                    </svg>
+                    <div>
+                        <h3 class="font-semibold text-red-800">Email Authentication Failed</h3>
+                        <p class="text-red-700 text-sm mt-1">Sent ${job.sent} emails before stopping. Your email provider blocked further sends.</p>
+                        <div class="mt-3 p-3 bg-white rounded border border-red-100">
+                            <p class="font-medium text-gray-800 mb-2">What to do:</p>
+                            <ol class="text-sm text-gray-700 space-y-1 list-decimal list-inside">
+                                <li>Check your email account for security alerts</li>
+                                <li>If using Gmail, <a href="https://myaccount.google.com/apppasswords" target="_blank" class="text-blue-600 underline">generate a new app password</a></li>
+                                <li>Wait 24 hours before trying again (rate limits reset daily)</li>
+                                <li>Consider using <a href="/settings" class="text-blue-600 underline">Resend</a> for bulk sending</li>
+                            </ol>
+                        </div>
+                        <p class="text-sm text-gray-600 mt-3">
+                            <strong>${job.total - job.sent - job.failed} brokers remaining.</strong>
+                            Filter by "Pending" status to send to them later.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    // Handle daily limit pause
+    if (job.status === 'paused') {
+        progressArea.innerHTML = `
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div class="flex items-start gap-3">
+                    <svg class="w-6 h-6 text-blue-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <div>
+                        <h3 class="font-semibold text-blue-800">Daily Limit Reached</h3>
+                        <p class="text-blue-700 text-sm mt-1">Sent ${job.sent} emails today. Remaining emails will continue tomorrow.</p>
+                        <p class="text-sm text-gray-600 mt-2">${job.total - job.sent - job.failed} brokers will be sent automatically when you restart the app tomorrow.</p>
+                    </div>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    // Normal completion
+    const statusClass = job.status === 'cancelled' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800';
+    const statusText = job.status === 'cancelled' ? 'Cancelled' : 'Complete';
+
+    progressArea.innerHTML = `
+        <div class="${statusClass} px-4 py-3 rounded">
+            <strong>${statusText}!</strong> Sent ${job.sent} emails (${job.failed} failed).
+            <a href="/brokers" class="underline ml-2">Refresh page</a>
+        </div>
+    `;
+}
+
+async function cancelJob() {
+    if (!currentJobId) return;
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+    try {
+        await fetch(`/api/job/${currentJobId}/cancel`, {
+            method: 'POST',
+            headers: {
+                'X-CSRF-Token': csrfToken
+            }
+        });
+    } catch (err) {
+        console.error('Error cancelling job:', err);
+    }
+}
+
+function showError(message) {
+    const progressArea = document.getElementById('send-all-progress');
+    progressArea.innerHTML = `
+        <div class="bg-red-100 text-red-800 px-4 py-3 rounded">
+            <strong>Error:</strong> ${message}
+        </div>
+    `;
+}
+
+function resetButton() {
+    const btn = document.getElementById('send-all-btn');
+    const btnText = document.getElementById('send-all-text');
+    const spinner = document.getElementById('send-all-spinner');
+
+    btn.disabled = false;
+    btnText.textContent = 'Send to All';
+    spinner.classList.add('hidden');
+    currentJobId = null;
+}
+</script>
+{{end}}
+
+{{template "layout" .}}

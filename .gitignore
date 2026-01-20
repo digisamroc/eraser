@@ -1,0 +1,58 @@
+# Binaries
+eraser
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Config files with personal info
+config.yaml
+*.local.yaml
+
+# History database
+*.db
+
+# Test files
+*.test
+*.out
+coverage.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+go.sum
+
+# Logs
+*.log
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# Firebase
+firebase-debug.log
+.firebase/
+.firebaserc
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Screenshots and browser data
+screenshots/
+browser-data/
+
+# Personal data that might leak
+pending_job.json

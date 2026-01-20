@@ -1,0 +1,203 @@
+{{define "content"}}
+<div class="fade-in-up">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="font-display text-3xl font-bold text-primary">Request History</h1>
+            <p class="text-secondary mt-1">Track your data removal requests</p>
+        </div>
+    </div>
+
+    <!-- Filter Tabs -->
+    <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div class="flex gap-2">
+            <a href="/history" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{if not .StatusFilter}}bg-[var(--accent)] text-white{{else}}bg-[var(--bg-elevated)] text-secondary hover:text-primary{{end}}">
+                All
+            </a>
+            <a href="/history?status=sent" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{if eq .StatusFilter "sent"}}bg-[var(--success)] text-white{{else}}bg-[var(--bg-elevated)] text-secondary hover:text-primary{{end}}">
+                Sent
+            </a>
+            <a href="/history?status=failed" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{if eq .StatusFilter "failed"}}bg-[var(--error)] text-white{{else}}bg-[var(--bg-elevated)] text-secondary hover:text-primary{{end}}">
+                Failed
+            </a>
+        </div>
+        <button
+            id="clear-failed-btn"
+            onclick="clearFailedRecords()"
+            class="px-4 py-2 rounded-lg text-sm font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors flex items-center gap-2"
+        >
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            </svg>
+            Clear Failed
+        </button>
+    </div>
+
+    <!-- Clear result message -->
+    <div id="clear-result" class="mb-4"></div>
+
+    <script>
+    async function clearFailedRecords() {
+        if (!confirm('Delete all failed records? This cannot be undone.')) return;
+
+        const btn = document.getElementById('clear-failed-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="animate-spin">⏳</span> Clearing...';
+
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+        try {
+            const resp = await fetch('/api/history/failed', {
+                method: 'DELETE',
+                headers: { 'X-CSRF-Token': csrfToken }
+            });
+            const data = await resp.json();
+
+            if (resp.ok) {
+                document.getElementById('clear-result').innerHTML = `
+                    <div class="bg-green-100 text-green-800 px-4 py-3 rounded">
+                        ${data.message}. <a href="/history" class="underline">Refresh page</a>
+                    </div>
+                `;
+            } else {
+                throw new Error(data.error || 'Failed to clear records');
+            }
+        } catch (err) {
+            document.getElementById('clear-result').innerHTML = `
+                <div class="bg-red-100 text-red-800 px-4 py-3 rounded">
+                    Error: ${err.message}
+                </div>
+            `;
+        }
+
+        btn.disabled = false;
+        btn.innerHTML = `
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            </svg>
+            Clear Failed
+        `;
+    }
+    </script>
+
+    {{if .History}}
+    <!-- Stats Summary -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+        <div class="card p-4 text-center">
+            <p class="font-display text-2xl font-bold text-primary">{{len .History}}</p>
+            <p class="text-sm text-muted">Total Requests</p>
+        </div>
+        <div class="card p-4 text-center">
+            <p class="font-display text-2xl font-bold text-success" id="sent-count">0</p>
+            <p class="text-sm text-muted">Successful</p>
+        </div>
+        <div class="card p-4 text-center">
+            <p class="font-display text-2xl font-bold text-error" id="failed-count">0</p>
+            <p class="text-sm text-muted">Failed</p>
+        </div>
+        <div class="card p-4 text-center">
+            <p class="font-display text-2xl font-bold text-accent" id="success-rate">0%</p>
+            <p class="text-sm text-muted">Success Rate</p>
+        </div>
+    </div>
+    <script>
+        (function() {
+            let sent = 0, failed = 0;
+            {{range .History}}
+            {{if eq .Status "sent"}}sent++;{{else}}failed++;{{end}}
+            {{end}}
+            document.getElementById('sent-count').textContent = sent;
+            document.getElementById('failed-count').textContent = failed;
+            const total = sent + failed;
+            document.getElementById('success-rate').textContent = total > 0 ? Math.round(sent / total * 100) + '%' : '0%';
+        })();
+    </script>
+
+    <!-- History Timeline -->
+    <div class="card overflow-hidden">
+        <div class="divide-y divide-[var(--border-subtle)]">
+            {{range .History}}
+            <div class="p-4 hover:bg-elevated transition-colors">
+                <div class="flex items-start gap-4">
+                    <!-- Status Icon -->
+                    {{if eq .Status "sent"}}
+                    <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center" style="background: rgba(16, 185, 129, 0.15);">
+                        <svg class="w-5 h-5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                    </div>
+                    {{else}}
+                    <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center" style="background: rgba(244, 63, 94, 0.15);">
+                        <svg class="w-5 h-5 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </div>
+                    {{end}}
+
+                    <!-- Content -->
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-start justify-between gap-4">
+                            <div>
+                                <h3 class="font-medium text-primary">{{.BrokerName}}</h3>
+                                <p class="text-sm text-muted">{{.Email}}</p>
+                            </div>
+                            <div class="text-right flex-shrink-0">
+                                {{if eq .Status "sent"}}
+                                <span class="badge badge-success">Sent</span>
+                                {{else}}
+                                <span class="badge badge-error">Failed</span>
+                                {{end}}
+                                <p class="text-xs text-muted mt-1">{{formatTime .SentAt}}</p>
+                            </div>
+                        </div>
+
+                        <!-- Template Badge -->
+                        <div class="mt-2">
+                            <span class="badge badge-neutral text-xs">
+                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                </svg>
+                                {{.Template}} template
+                            </span>
+                        </div>
+
+                        <!-- Error Message -->
+                        {{if .Error}}
+                        <div class="mt-3 p-3 rounded-lg" style="background: rgba(244, 63, 94, 0.1); border: 1px solid rgba(244, 63, 94, 0.2);">
+                            <div class="flex items-start gap-2">
+                                <svg class="w-4 h-4 text-error flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                <p class="text-sm text-error">{{.Error}}</p>
+                            </div>
+                        </div>
+                        {{end}}
+                    </div>
+                </div>
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    {{else}}
+    <!-- Empty State -->
+    <div class="card p-12 text-center">
+        <div class="w-20 h-20 mx-auto rounded-full flex items-center justify-center mb-6" style="background: var(--bg-elevated);">
+            <svg class="w-10 h-10 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+        </div>
+        <h2 class="font-display text-xl font-semibold text-primary mb-2">No History Yet</h2>
+        <p class="text-secondary mb-6 max-w-md mx-auto">Start sending removal requests to data brokers and track your progress here.</p>
+        <a href="/brokers" class="btn btn-primary">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+            </svg>
+            Browse Data Brokers
+        </a>
+    </div>
+    {{end}}
+</div>
+{{end}}
+
+{{template "layout" .}}

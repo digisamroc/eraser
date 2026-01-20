@@ -1,0 +1,293 @@
+{{define "content"}}
+<div class="space-y-6 fade-in-up">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h1 class="font-display text-3xl font-bold text-primary">Opt-Out Forms</h1>
+            <p class="text-secondary mt-1">Track form filling progress from broker emails</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <a href="/pipeline" class="btn btn-secondary">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                </svg>
+                Back to Pipeline
+            </a>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div class="card p-4">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-blue-100">
+                    <svg class="w-4 h-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs text-muted">Total Forms</p>
+                    <p class="font-display text-xl font-bold text-primary">{{.TotalForms}}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-4 cursor-pointer hover:ring-2 hover:ring-yellow-400" onclick="filterForms('pending')">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-yellow-100">
+                    <svg class="w-4 h-4 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs text-muted">Pending</p>
+                    <p class="font-display text-xl font-bold text-yellow-600">{{.Stats.Pending}}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-4 cursor-pointer hover:ring-2 hover:ring-orange-400" onclick="filterForms('captcha')">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-orange-100">
+                    <svg class="w-4 h-4 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs text-muted">CAPTCHA</p>
+                    <p class="font-display text-xl font-bold text-orange-600">{{.Stats.Captcha}}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-4 cursor-pointer hover:ring-2 hover:ring-green-400" onclick="filterForms('filled')">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-green-100">
+                    <svg class="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs text-muted">Filled</p>
+                    <p class="font-display text-xl font-bold text-green-600">{{.Stats.Filled}}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-4 cursor-pointer hover:ring-2 hover:ring-gray-400" onclick="filterForms('skipped')">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-100">
+                    <svg class="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs text-muted">Skipped</p>
+                    <p class="font-display text-xl font-bold text-gray-600">{{.Stats.Skipped}}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter Buttons -->
+    <div class="card p-4">
+        <div class="flex flex-wrap items-center gap-3">
+            <span class="text-sm text-muted">Filter:</span>
+            <button class="form-filter-btn active" data-filter="all" onclick="filterForms('all')">All</button>
+            <button class="form-filter-btn" data-filter="pending" onclick="filterForms('pending')">Pending</button>
+            <button class="form-filter-btn" data-filter="captcha" onclick="filterForms('captcha')">CAPTCHA</button>
+            <button class="form-filter-btn" data-filter="filled" onclick="filterForms('filled')">Filled</button>
+            <button class="form-filter-btn" data-filter="skipped" onclick="filterForms('skipped')">Skipped</button>
+            <button class="form-filter-btn" data-filter="failed" onclick="filterForms('failed')">Failed</button>
+        </div>
+    </div>
+
+    <!-- Forms List -->
+    <div class="card overflow-hidden">
+        <div id="forms-list" class="divide-y divide-[var(--border)]">
+            {{if .Forms}}
+            {{range .Forms}}
+            <div class="form-item p-4 hover:bg-opacity-50 transition-colors" data-status="{{.Status}}" style="background: var(--bg-surface);">
+                <div class="flex items-start gap-4">
+                    <!-- Status Icon -->
+                    <div class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center
+                        {{if eq .Status "filled"}}bg-green-100 text-green-600
+                        {{else if eq .Status "captcha"}}bg-orange-100 text-orange-600
+                        {{else if eq .Status "pending"}}bg-yellow-100 text-yellow-600
+                        {{else if eq .Status "skipped"}}bg-gray-100 text-gray-600
+                        {{else if eq .Status "failed"}}bg-red-100 text-red-600
+                        {{else}}bg-gray-100 text-gray-600{{end}}">
+                        {{if eq .Status "filled"}}
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        {{else if eq .Status "captcha"}}
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                        </svg>
+                        {{else if eq .Status "pending"}}
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        {{else if eq .Status "skipped"}}
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
+                        </svg>
+                        {{else}}
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        {{end}}
+                    </div>
+
+                    <!-- Form Details -->
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-sm font-semibold text-primary">{{.BrokerName}}</h3>
+                            <span class="text-xs px-2 py-0.5 rounded-full
+                                {{if eq .Status "filled"}}bg-green-100 text-green-800
+                                {{else if eq .Status "captcha"}}bg-orange-100 text-orange-800
+                                {{else if eq .Status "pending"}}bg-yellow-100 text-yellow-800
+                                {{else if eq .Status "skipped"}}bg-gray-100 text-gray-800
+                                {{else if eq .Status "failed"}}bg-red-100 text-red-800
+                                {{else}}bg-gray-100 text-gray-800{{end}}">
+                                {{.Status}}
+                            </span>
+                        </div>
+                        <p class="text-xs text-muted mt-1 truncate">{{.EmailSubject}}</p>
+                        <p class="text-xs text-blue-600 mt-1 truncate">
+                            <a href="{{.FormURL}}" target="_blank" class="hover:underline">{{.FormURL}}</a>
+                        </p>
+                        <p class="text-xs text-muted mt-1">Detected {{.DetectedAt.Format "Jan 2, 2006 3:04 PM"}}</p>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="flex-shrink-0 flex items-center gap-2">
+                        {{if eq .Status "captcha"}}
+                        <a href="/tasks/{{.TaskID}}/helper" class="btn btn-primary text-xs px-3 py-1.5">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                            </svg>
+                            Solve
+                        </a>
+                        {{else if eq .Status "pending"}}
+                        <a href="{{.FormURL}}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary text-xs px-3 py-1.5">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                            </svg>
+                            Open Form
+                        </a>
+                        <form action="/forms/{{.BrokerID}}/complete" method="POST" class="inline">
+                            <input type="hidden" name="gorilla.csrf.Token" value="{{$.CSRFToken}}">
+                            <button type="submit" class="btn btn-primary text-xs px-3 py-1.5"
+                                hx-post="/forms/{{.BrokerID}}/complete"
+                                hx-confirm="Mark this form as complete?">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                </svg>
+                                Done
+                            </button>
+                        </form>
+                        <form action="/forms/{{.BrokerID}}/skip" method="POST" class="inline">
+                            <input type="hidden" name="gorilla.csrf.Token" value="{{$.CSRFToken}}">
+                            <button type="submit" class="btn btn-ghost text-xs px-2 py-1.5 text-gray-500 hover:text-gray-700"
+                                hx-post="/forms/{{.BrokerID}}/skip"
+                                hx-confirm="Skip this form?">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
+                                </svg>
+                            </button>
+                        </form>
+                        {{else if eq .Status "filled"}}
+                        <span class="text-green-600 text-sm font-medium flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            Done
+                        </span>
+                        {{else if eq .Status "skipped"}}
+                        <span class="text-gray-500 text-sm font-medium flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
+                            </svg>
+                            Skipped
+                        </span>
+                        {{end}}
+                    </div>
+                </div>
+            </div>
+            {{end}}
+            {{else}}
+            <div class="p-12 text-center">
+                <div class="w-16 h-16 mx-auto rounded-full bg-blue-100 flex items-center justify-center mb-4">
+                    <svg class="w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-primary mb-2">No forms detected yet</h3>
+                <p class="text-secondary mb-4">Scan your inbox to find broker response emails with opt-out forms.</p>
+                <a href="/pipeline" class="btn btn-primary">Go to Pipeline</a>
+            </div>
+            {{end}}
+        </div>
+    </div>
+</div>
+
+<style>
+    .form-filter-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .form-filter-btn:hover {
+        color: var(--text-primary);
+        border-color: var(--text-muted);
+    }
+
+    .form-filter-btn.active {
+        color: var(--accent);
+        border-color: var(--accent);
+        background: var(--accent-muted);
+    }
+
+    .form-item {
+        transition: background 0.2s ease;
+    }
+
+    .form-item:hover {
+        background: var(--bg-elevated) !important;
+    }
+
+    .form-item.hidden {
+        display: none;
+    }
+</style>
+
+<script>
+function filterForms(status) {
+    // Update active button
+    document.querySelectorAll('.form-filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === status);
+    });
+
+    // Filter forms
+    document.querySelectorAll('.form-item').forEach(item => {
+        if (status === 'all' || item.dataset.status === status) {
+            item.classList.remove('hidden');
+        } else {
+            item.classList.add('hidden');
+        }
+    });
+}
+</script>
+{{end}}

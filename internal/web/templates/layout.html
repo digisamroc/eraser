@@ -1,0 +1,644 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Eraser</title>
+    {{if .CSRFToken}}<meta name="csrf-token" content="{{.CSRFToken}}">{{end}}
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        accent: '#10b981',
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <style>
+        /* ============================================
+           ERASER DESIGN SYSTEM - "Digital Sanctuary"
+           ============================================ */
+
+        /* CSS Custom Properties - Dark Theme (Default) */
+        :root {
+            --bg-base: #020617;
+            --bg-surface: #0f172a;
+            --bg-elevated: #1e293b;
+            --bg-glass: rgba(15, 23, 42, 0.8);
+
+            --accent: #10b981;
+            --accent-hover: #34d399;
+            --accent-muted: rgba(16, 185, 129, 0.15);
+            --accent-glow: rgba(16, 185, 129, 0.4);
+
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #f43f5e;
+
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+
+            --border: #334155;
+            --border-subtle: #1e293b;
+
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Light Theme */
+        .light {
+            --bg-base: #f8fafc;
+            --bg-surface: #ffffff;
+            --bg-elevated: #f1f5f9;
+            --bg-glass: rgba(255, 255, 255, 0.8);
+
+            --accent: #059669;
+            --accent-hover: #10b981;
+            --accent-muted: rgba(5, 150, 105, 0.1);
+            --accent-glow: rgba(5, 150, 105, 0.3);
+
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+
+            --border: #e2e8f0;
+            --border-subtle: #f1f5f9;
+
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+        }
+
+        /* ============================================
+           BASE STYLES
+           ============================================ */
+
+        * {
+            font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+        }
+
+        h1, h2, h3, h4, h5, h6, .font-display {
+            font-family: 'Outfit', system-ui, sans-serif;
+        }
+
+        body {
+            background: var(--bg-base);
+            color: var(--text-secondary);
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* Subtle gradient background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(ellipse at 50% 0%, var(--bg-surface) 0%, var(--bg-base) 70%);
+            z-index: -2;
+        }
+
+        /* Noise texture overlay */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+            opacity: 0.03;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .light body::after {
+            opacity: 0.02;
+        }
+
+        /* ============================================
+           ANIMATIONS
+           ============================================ */
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 20px var(--accent-glow); }
+            50% { box-shadow: 0 0 30px var(--accent-glow), 0 0 40px var(--accent-glow); }
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        .fade-in-up {
+            animation: fadeInUp 0.5s ease-out;
+        }
+
+        .float {
+            animation: float 3s ease-in-out infinite;
+        }
+
+        /* Staggered animations for children */
+        .stagger > * {
+            opacity: 0;
+            animation: fadeInUp 0.5s ease-out forwards;
+        }
+        .stagger > *:nth-child(1) { animation-delay: 0.1s; }
+        .stagger > *:nth-child(2) { animation-delay: 0.2s; }
+        .stagger > *:nth-child(3) { animation-delay: 0.3s; }
+        .stagger > *:nth-child(4) { animation-delay: 0.4s; }
+        .stagger > *:nth-child(5) { animation-delay: 0.5s; }
+        .stagger > *:nth-child(6) { animation-delay: 0.6s; }
+
+        /* HTMX indicators */
+        .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: inline-flex; }
+        .htmx-request.htmx-indicator { display: inline-flex; }
+
+        /* ============================================
+           COMPONENT STYLES
+           ============================================ */
+
+        /* Cards */
+        .card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            transition: all 0.2s ease;
+        }
+
+        .card:hover {
+            box-shadow: var(--shadow-lg);
+        }
+
+        .card-glass {
+            background: var(--bg-glass);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 20px;
+            font-weight: 500;
+            font-size: 14px;
+            border-radius: 10px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: none;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 0 30px var(--accent-glow);
+        }
+
+        .btn-secondary {
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border);
+            border-color: var(--text-muted);
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-secondary);
+        }
+
+        .btn-ghost:hover {
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+        }
+
+        .btn-danger {
+            background: rgba(244, 63, 94, 0.1);
+            color: var(--error);
+            border: 1px solid rgba(244, 63, 94, 0.3);
+        }
+
+        .btn-danger:hover {
+            background: rgba(244, 63, 94, 0.2);
+        }
+
+        /* Form inputs */
+        .input {
+            width: 100%;
+            padding: 10px 14px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-muted);
+        }
+
+        .input::placeholder {
+            color: var(--text-muted);
+        }
+
+        /* Labels */
+        .label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            font-size: 12px;
+            font-weight: 500;
+            border-radius: 20px;
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--success);
+        }
+
+        .badge-warning {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--warning);
+        }
+
+        .badge-error {
+            background: rgba(244, 63, 94, 0.15);
+            color: var(--error);
+        }
+
+        .badge-neutral {
+            background: var(--bg-elevated);
+            color: var(--text-secondary);
+        }
+
+        /* Status dot */
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-dot-success { background: var(--success); }
+        .status-dot-warning { background: var(--warning); }
+        .status-dot-error { background: var(--error); }
+
+        /* Tables */
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .table th {
+            text-align: left;
+            padding: 12px 16px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            background: var(--bg-elevated);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .table td {
+            padding: 16px;
+            border-bottom: 1px solid var(--border-subtle);
+            color: var(--text-secondary);
+        }
+
+        .table tr:hover td {
+            background: var(--bg-elevated);
+        }
+
+        .table tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Navigation link */
+        .nav-link {
+            position: relative;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        .nav-link:hover {
+            color: var(--text-primary);
+        }
+
+        .nav-link.active {
+            color: var(--accent);
+        }
+
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            width: 0;
+            height: 2px;
+            background: var(--accent);
+            transition: all 0.2s ease;
+            transform: translateX(-50%);
+        }
+
+        .nav-link:hover::after,
+        .nav-link.active::after {
+            width: 100%;
+        }
+
+        /* Theme toggle */
+        .theme-toggle {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: var(--text-secondary);
+        }
+
+        .theme-toggle:hover {
+            background: var(--border);
+            color: var(--text-primary);
+        }
+
+        .theme-toggle svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* Spinner */
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        /* Progress ring */
+        .progress-ring {
+            transform: rotate(-90deg);
+        }
+
+        .progress-ring-bg {
+            stroke: var(--border);
+        }
+
+        .progress-ring-fill {
+            stroke: var(--accent);
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.5s ease;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-base);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+
+        /* Text utilities */
+        .text-primary { color: var(--text-primary); }
+        .text-secondary { color: var(--text-secondary); }
+        .text-muted { color: var(--text-muted); }
+        .text-accent { color: var(--accent); }
+        .text-success { color: var(--success); }
+        .text-warning { color: var(--warning); }
+        .text-error { color: var(--error); }
+
+        /* Background utilities */
+        .bg-base { background: var(--bg-base); }
+        .bg-surface { background: var(--bg-surface); }
+        .bg-elevated { background: var(--bg-elevated); }
+
+        /* Mobile menu */
+        .mobile-menu {
+            display: none;
+        }
+
+        @media (max-width: 640px) {
+            .desktop-nav { display: none; }
+            .mobile-menu { display: block; }
+        }
+    </style>
+
+    <script>
+        // Theme management
+        const getTheme = () => {
+            const stored = localStorage.getItem('eraser-theme');
+            if (stored) return stored;
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        };
+
+        const setTheme = (theme) => {
+            document.documentElement.classList.toggle('light', theme === 'light');
+            localStorage.setItem('eraser-theme', theme);
+
+            // Update toggle icon
+            const toggle = document.getElementById('theme-toggle');
+            if (toggle) {
+                toggle.innerHTML = theme === 'light'
+                    ? '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>'
+                    : '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>';
+            }
+        };
+
+        const toggleTheme = () => {
+            const current = getTheme();
+            setTheme(current === 'dark' ? 'light' : 'dark');
+        };
+
+        // Initialize theme immediately to prevent flash
+        setTheme(getTheme());
+    </script>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50">
+        <div class="max-w-6xl mx-auto px-4 py-3">
+            <div class="card-glass px-4 py-3">
+                <div class="flex items-center justify-between">
+                    <!-- Logo -->
+                    <a href="/" class="flex items-center gap-3 text-decoration-none">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-lg" style="box-shadow: 0 0 20px var(--accent-glow);">
+                            <svg class="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                            </svg>
+                        </div>
+                        <span class="font-display text-xl font-bold text-primary">Eraser</span>
+                    </a>
+
+                    <!-- Desktop Navigation -->
+                    <div class="hidden sm:flex items-center gap-1 desktop-nav">
+                        <a href="/" class="nav-link {{if eq .Title "Dashboard"}}active{{end}}">Dashboard</a>
+                        <a href="/brokers" class="nav-link {{if eq .Title "Data Brokers"}}active{{end}}">Brokers</a>
+                        <a href="/pipeline" class="nav-link {{if eq .Title "Pipeline"}}active{{end}}">Pipeline</a>
+                        <a href="/history" class="nav-link {{if eq .Title "History"}}active{{end}}">History</a>
+                        <a href="/settings" class="nav-link {{if eq .Title "Settings"}}active{{end}}">Settings</a>
+                    </div>
+
+                    <!-- Theme Toggle -->
+                    <button id="theme-toggle" class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                        </svg>
+                    </button>
+
+                    <!-- Mobile Menu Button -->
+                    <button class="mobile-menu sm:hidden theme-toggle" onclick="document.getElementById('mobile-nav').classList.toggle('hidden')">
+                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Mobile Navigation -->
+                <div id="mobile-nav" class="hidden sm:hidden mt-4 pt-4 border-t border-[var(--border)]">
+                    <div class="flex flex-col gap-2">
+                        <a href="/" class="nav-link {{if eq .Title "Dashboard"}}active{{end}}">Dashboard</a>
+                        <a href="/brokers" class="nav-link {{if eq .Title "Data Brokers"}}active{{end}}">Brokers</a>
+                        <a href="/pipeline" class="nav-link {{if eq .Title "Pipeline"}}active{{end}}">Pipeline</a>
+                        <a href="/history" class="nav-link {{if eq .Title "History"}}active{{end}}">History</a>
+                        <a href="/settings" class="nav-link {{if eq .Title "Settings"}}active{{end}}">Settings</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main content -->
+    <main class="max-w-6xl mx-auto pt-24 pb-12 px-4">
+        {{template "content" .}}
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-[var(--border)] mt-auto">
+        <div class="max-w-6xl mx-auto py-6 px-4">
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div class="flex items-center gap-2">
+                    <svg class="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                    <span class="text-sm text-muted">Eraser - Open Source Privacy Protection</span>
+                </div>
+                <div class="flex items-center gap-4 text-sm text-muted">
+                    <a href="https://github.com/eraser-privacy/eraser" target="_blank" class="hover:text-primary transition-colors">GitHub</a>
+                    <span>v1.0.0</span>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Configure HTMX to send CSRF token with all requests
+        document.addEventListener('DOMContentLoaded', function() {
+            var csrfToken = document.querySelector('meta[name="csrf-token"]');
+            if (csrfToken) {
+                document.body.addEventListener('htmx:configRequest', function(evt) {
+                    evt.detail.headers['X-CSRF-Token'] = csrfToken.content;
+                });
+            }
+
+            // Initialize theme toggle icon
+            setTheme(getTheme());
+        });
+    </script>
+</body>
+</html>
+{{end}}

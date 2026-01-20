@@ -1,0 +1,157 @@
+<!-- Count header -->
+<div class="px-4 py-3 border-b border-[var(--border)] bg-elevated">
+    <p class="text-sm text-secondary">Showing <span class="font-medium text-primary">{{.Filtered}}</span> of <span class="font-medium text-primary">{{.Total}}</span> brokers</p>
+</div>
+
+<!-- Desktop Table -->
+<div class="hidden md:block overflow-x-auto">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Broker</th>
+                <th>Category</th>
+                <th>Region</th>
+                <th>Status</th>
+                <th class="text-right">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Brokers}}
+            <tr>
+                <td>
+                    <div class="flex flex-col">
+                        <span class="font-medium text-primary">{{.Name}}</span>
+                        <span class="text-sm text-muted">{{.Email}}</span>
+                    </div>
+                </td>
+                <td>
+                    {{if .Category}}
+                    <span class="badge badge-neutral">{{.Category}}</span>
+                    {{else}}
+                    <span class="text-muted">—</span>
+                    {{end}}
+                </td>
+                <td>
+                    {{if .Region}}
+                    <span class="text-secondary uppercase text-sm">{{.Region}}</span>
+                    {{else}}
+                    <span class="text-muted">—</span>
+                    {{end}}
+                </td>
+                <td id="status-{{.ID}}">
+                    {{if eq .Status "sent"}}
+                    <span class="badge badge-success">
+                        <span class="status-dot status-dot-success"></span>
+                        Sent
+                    </span>
+                    {{else if eq .Status "failed"}}
+                    <span class="badge badge-error">
+                        <span class="status-dot status-dot-error"></span>
+                        Failed
+                    </span>
+                    {{else}}
+                    <span class="badge badge-neutral">
+                        <span class="status-dot" style="background: var(--text-muted);"></span>
+                        Never sent
+                    </span>
+                    {{end}}
+                </td>
+                <td class="text-right">
+                    <div class="flex items-center justify-end gap-2">
+                        <button
+                            class="btn btn-ghost text-sm py-1 px-3"
+                            hx-post="/api/send/{{.ID}}"
+                            hx-target="#status-{{.ID}}"
+                            hx-swap="innerHTML"
+                            hx-indicator="#spinner-{{.ID}}"
+                        >
+                            Send
+                            <span id="spinner-{{.ID}}" class="htmx-indicator ml-1">
+                                <span class="spinner"></span>
+                            </span>
+                        </button>
+                        {{if .OptOutURL}}
+                        <a href="{{.OptOutURL}}" target="_blank" class="btn btn-ghost text-sm py-1 px-3">
+                            Opt-out
+                            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                            </svg>
+                        </a>
+                        {{end}}
+                    </div>
+                </td>
+            </tr>
+            {{else}}
+            <tr>
+                <td colspan="5" class="py-12 text-center">
+                    <div class="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4" style="background: var(--bg-elevated);">
+                        <svg class="w-8 h-8 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                        </svg>
+                    </div>
+                    <p class="text-secondary mb-1">No brokers found</p>
+                    <p class="text-sm text-muted">Try adjusting your search or filters</p>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+
+<!-- Mobile Cards -->
+<div class="md:hidden divide-y divide-[var(--border-subtle)]">
+    {{range .Brokers}}
+    <div class="p-4">
+        <div class="flex items-start justify-between mb-3">
+            <div>
+                <h3 class="font-medium text-primary">{{.Name}}</h3>
+                <p class="text-sm text-muted">{{.Email}}</p>
+            </div>
+            <div id="status-mobile-{{.ID}}">
+                {{if eq .Status "sent"}}
+                <span class="badge badge-success">Sent</span>
+                {{else if eq .Status "failed"}}
+                <span class="badge badge-error">Failed</span>
+                {{else}}
+                <span class="badge badge-neutral">Pending</span>
+                {{end}}
+            </div>
+        </div>
+        <div class="flex items-center gap-2 mb-3 text-sm">
+            {{if .Category}}
+            <span class="badge badge-neutral">{{.Category}}</span>
+            {{end}}
+            {{if .Region}}
+            <span class="text-muted uppercase">{{.Region}}</span>
+            {{end}}
+        </div>
+        <div class="flex gap-2">
+            <button
+                class="btn btn-primary flex-1 py-2"
+                hx-post="/api/send/{{.ID}}"
+                hx-target="#status-mobile-{{.ID}}"
+                hx-swap="innerHTML"
+            >
+                Send Request
+            </button>
+            {{if .OptOutURL}}
+            <a href="{{.OptOutURL}}" target="_blank" class="btn btn-secondary py-2">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                </svg>
+            </a>
+            {{end}}
+        </div>
+    </div>
+    {{else}}
+    <div class="p-8 text-center">
+        <div class="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4" style="background: var(--bg-elevated);">
+            <svg class="w-8 h-8 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+        </div>
+        <p class="text-secondary mb-1">No brokers found</p>
+        <p class="text-sm text-muted">Try adjusting your search or filters</p>
+    </div>
+    {{end}}
+</div>

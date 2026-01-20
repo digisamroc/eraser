@@ -1,0 +1,51 @@
+To Whom It May Concern at {{.BrokerName}},
+
+I am writing to request the removal of my personal information from your database and any associated services.
+
+PERSONAL IDENTIFICATION:
+- Full Name: {{.FullName}}
+- Email Address: {{.Email}}
+{{- if .Address}}
+- Address: {{.Address}}
+{{- end}}
+{{- if .City}}
+- City: {{.City}}
+{{- end}}
+{{- if .State}}
+- State/Province: {{.State}}
+{{- end}}
+{{- if .ZipCode}}
+- Postal Code: {{.ZipCode}}
+{{- end}}
+{{- if .Country}}
+- Country: {{.Country}}
+{{- end}}
+{{- if .Phone}}
+- Phone: {{.Phone}}
+{{- end}}
+{{- if .DateOfBirth}}
+- Date of Birth: {{.DateOfBirth}}
+{{- end}}
+
+REQUEST:
+I formally request that you:
+
+1. Remove all personal information associated with me from your databases
+2. Cease any sale, sharing, or distribution of my personal information to third parties
+3. Remove my information from any public-facing search results or people-search pages
+4. Confirm the completion of this removal in writing
+
+I am exercising my privacy rights under applicable data protection laws, which may include but are not limited to:
+- General Data Protection Regulation (GDPR) - EU
+- California Consumer Privacy Act (CCPA) / California Privacy Rights Act (CPRA) - California
+- Virginia Consumer Data Protection Act (VCDPA) - Virginia
+- Colorado Privacy Act (CPA) - Colorado
+- Other applicable state and federal privacy laws
+
+Please respond to this request within 30 days. If you require any additional information to verify my identity or process this request, please contact me at {{.Email}}.
+
+Thank you for your prompt attention to this matter.
+
+Sincerely,
+{{.FullName}}
+{{.Date}}

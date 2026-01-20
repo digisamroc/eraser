@@ -1,0 +1,142 @@
+{{define "content"}}
+<div class="min-h-[80vh] flex items-center justify-center py-8">
+    <div class="max-w-lg w-full fade-in-up">
+        <div class="card p-8">
+            <!-- Progress Steps -->
+            <div class="flex justify-center mb-8">
+                <div class="flex items-center gap-2">
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-white" style="background: var(--accent);">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                    </div>
+                    <div class="w-12 h-1 rounded" style="background: var(--accent);"></div>
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center font-display font-bold text-white" style="background: var(--accent);">2</div>
+                    <div class="w-12 h-1 rounded" style="background: var(--border);"></div>
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center font-display font-bold" style="background: var(--bg-elevated); color: var(--text-muted);">3</div>
+                </div>
+            </div>
+
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <h1 class="font-display text-2xl font-bold text-primary mb-2">Your Information</h1>
+                <p class="text-secondary">This will be used in your removal requests</p>
+            </div>
+
+            <form method="POST" action="/setup/profile" class="space-y-6">
+                {{.CSRFField}}
+
+                <!-- Required Fields -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label for="first_name" class="label">First Name <span class="text-error">*</span></label>
+                        <input type="text" name="first_name" id="first_name" required
+                            value="{{.Profile.FirstName}}"
+                            class="input {{if .Errors.first_name}}border-error{{end}}"
+                            placeholder="John">
+                        {{if .Errors.first_name}}
+                        <p class="mt-1 text-sm text-error">{{.Errors.first_name}}</p>
+                        {{end}}
+                    </div>
+                    <div>
+                        <label for="last_name" class="label">Last Name <span class="text-error">*</span></label>
+                        <input type="text" name="last_name" id="last_name" required
+                            value="{{.Profile.LastName}}"
+                            class="input {{if .Errors.last_name}}border-error{{end}}"
+                            placeholder="Doe">
+                        {{if .Errors.last_name}}
+                        <p class="mt-1 text-sm text-error">{{.Errors.last_name}}</p>
+                        {{end}}
+                    </div>
+                </div>
+
+                <div>
+                    <label for="email" class="label">Email Address <span class="text-error">*</span></label>
+                    <input type="email" name="email" id="email" required
+                        value="{{.Profile.Email}}"
+                        class="input {{if .Errors.email}}border-error{{end}}"
+                        placeholder="john@example.com">
+                    {{if .Errors.email}}
+                    <p class="mt-1 text-sm text-error">{{.Errors.email}}</p>
+                    {{end}}
+                    <p class="mt-1 text-sm text-muted">This email will receive responses from data brokers</p>
+                </div>
+
+                <!-- Optional Fields -->
+                <div class="pt-6 border-t border-[var(--border)]">
+                    <p class="text-sm text-muted mb-4">Optional: Helps brokers find your records</p>
+
+                    <div class="space-y-4">
+                        <div>
+                            <label for="address" class="label">Street Address</label>
+                            <input type="text" name="address" id="address"
+                                value="{{.Profile.Address}}"
+                                class="input"
+                                placeholder="123 Main St">
+                        </div>
+
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div class="col-span-2">
+                                <label for="city" class="label">City</label>
+                                <input type="text" name="city" id="city"
+                                    value="{{.Profile.City}}"
+                                    class="input"
+                                    placeholder="New York">
+                            </div>
+                            <div>
+                                <label for="state" class="label">State</label>
+                                <input type="text" name="state" id="state"
+                                    value="{{.Profile.State}}"
+                                    class="input"
+                                    placeholder="NY">
+                            </div>
+                            <div>
+                                <label for="zip_code" class="label">ZIP</label>
+                                <input type="text" name="zip_code" id="zip_code"
+                                    value="{{.Profile.ZipCode}}"
+                                    class="input"
+                                    placeholder="10001">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label for="country" class="label">Country</label>
+                                <input type="text" name="country" id="country"
+                                    value="{{.Profile.Country}}"
+                                    class="input"
+                                    placeholder="USA">
+                            </div>
+                            <div>
+                                <label for="phone" class="label">Phone</label>
+                                <input type="tel" name="phone" id="phone"
+                                    value="{{.Profile.Phone}}"
+                                    class="input"
+                                    placeholder="+1 (555) 123-4567">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Navigation -->
+                <div class="flex items-center justify-between pt-6">
+                    <a href="/setup" class="btn btn-ghost">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                        </svg>
+                        Back
+                    </a>
+                    <button type="submit" class="btn btn-primary">
+                        Continue
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{template "layout" .}}

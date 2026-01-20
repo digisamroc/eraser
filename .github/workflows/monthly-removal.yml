@@ -1,0 +1,83 @@
+name: Monthly Data Removal Requests
+
+on:
+  schedule:
+    # Run on the 1st of every month at 9:00 AM UTC
+    - cron: '0 9 1 * *'
+  workflow_dispatch:
+    # Allow manual triggering
+    inputs:
+      dry_run:
+        description: 'Run in dry-run mode (no emails sent)'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  GO_VERSION: '1.21'
+
+jobs:
+  send-removal-requests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build Eraser
+        run: go build -o eraser ./cmd/eraser
+
+      - name: Create config from secrets
+        run: |
+          mkdir -p ~/.eraser
+          cat > ~/.eraser/config.yaml << 'EOF'
+          profile:
+            first_name: ${{ secrets.ERASER_FIRST_NAME }}
+            last_name: ${{ secrets.ERASER_LAST_NAME }}
+            email: ${{ secrets.ERASER_EMAIL }}
+            address: ${{ secrets.ERASER_ADDRESS }}
+            city: ${{ secrets.ERASER_CITY }}
+            state: ${{ secrets.ERASER_STATE }}
+            zip_code: ${{ secrets.ERASER_ZIP_CODE }}
+            country: ${{ secrets.ERASER_COUNTRY }}
+            phone: ${{ secrets.ERASER_PHONE }}
+
+          email:
+            provider: ${{ secrets.ERASER_EMAIL_PROVIDER }}
+            from: ${{ secrets.ERASER_EMAIL }}
+            smtp:
+              host: ${{ secrets.ERASER_SMTP_HOST }}
+              port: ${{ secrets.ERASER_SMTP_PORT }}
+              username: ${{ secrets.ERASER_SMTP_USERNAME }}
+              password: ${{ secrets.ERASER_SMTP_PASSWORD }}
+              use_tls: true
+            sendgrid:
+              api_key: ${{ secrets.ERASER_SENDGRID_API_KEY }}
+
+          options:
+            template: ${{ secrets.ERASER_TEMPLATE || 'generic' }}
+            rate_limit_ms: 3000
+          EOF
+
+      - name: Send removal requests
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            ./eraser send --dry-run
+          else
+            ./eraser send
+          fi
+
+      - name: Upload history database
+        uses: actions/upload-artifact@v4
+        with:
+          name: eraser-history-${{ github.run_number }}
+          path: ~/.eraser/history.db
+          retention-days: 90
+
+      - name: Generate summary
+        run: ./eraser status >> $GITHUB_STEP_SUMMARY

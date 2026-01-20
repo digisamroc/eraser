@@ -1,0 +1,152 @@
+{{define "content"}}
+<div class="max-w-4xl mx-auto">
+    <!-- Header -->
+    <div class="mb-6">
+        <a href="/tasks" class="text-blue-600 hover:text-blue-800 text-sm">&larr; Back to Action Needed</a>
+        <h1 class="text-2xl font-bold text-gray-900 mt-2">CAPTCHA Task: {{.Task.BrokerName}}</h1>
+        <p class="text-gray-600 mt-1">Complete this form manually after solving the CAPTCHA</p>
+    </div>
+
+    <!-- Timestamps -->
+    <div class="bg-gray-50 rounded-lg p-4 mb-6">
+        <div class="flex flex-wrap gap-6 text-sm">
+            <div>
+                <span class="text-gray-500">Created:</span>
+                <span class="font-medium text-gray-900">{{.Task.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}</span>
+            </div>
+            {{if .Task.OpenedAt.Valid}}
+            <div>
+                <span class="text-gray-500">First Opened:</span>
+                <span class="font-medium text-gray-900">{{.Task.OpenedAt.Time.Format "Jan 2, 2006 3:04 PM"}}</span>
+            </div>
+            {{end}}
+            {{if .Task.CompletedAt.Valid}}
+            <div>
+                <span class="text-gray-500">Completed:</span>
+                <span class="font-medium text-green-600">{{.Task.CompletedAt.Time.Format "Jan 2, 2006 3:04 PM"}}</span>
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Profile Data Section -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Your Information</h2>
+            <p class="text-sm text-gray-600 mb-4">Click any field to copy it to your clipboard</p>
+
+            <div class="space-y-3">
+                {{range .OrderedProfile}}
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer copy-field" data-value="{{.value}}">
+                    <div>
+                        <span class="text-xs text-gray-500 uppercase tracking-wide">{{.key}}</span>
+                        <p class="font-medium text-gray-900">{{.value}}</p>
+                    </div>
+                    <button class="text-blue-600 hover:text-blue-800 p-2 rounded-md hover:bg-blue-50" title="Copy to clipboard">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                        </svg>
+                    </button>
+                </div>
+                {{end}}
+            </div>
+
+            <!-- Open Form Button -->
+            <div class="mt-6">
+                <a href="{{.Task.FormURL}}" target="_blank" rel="noopener noreferrer"
+                   class="block w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg text-center transition-colors">
+                    Open Form in New Tab
+                </a>
+            </div>
+        </div>
+
+        <!-- Instructions & Screenshot Section -->
+        <div class="space-y-6">
+            <!-- Instructions -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Instructions</h2>
+                <ol class="list-decimal list-inside space-y-2 text-gray-700">
+                    <li>Click <strong>"Open Form in New Tab"</strong> on the left</li>
+                    <li>Solve the CAPTCHA on the form</li>
+                    <li>Use the copy buttons above to fill in your information</li>
+                    <li>Submit the form on the broker's website</li>
+                    <li>Return here and click <strong>"Mark Complete"</strong></li>
+                </ol>
+            </div>
+
+            <!-- Screenshot -->
+            {{if .Task.ScreenshotPath}}
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Form Screenshot</h2>
+                <img src="/screenshots/{{.Task.ScreenshotPath}}" alt="Form screenshot" class="w-full rounded-lg border border-gray-200">
+            </div>
+            {{end}}
+
+            <!-- Actions -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Actions</h2>
+                {{if eq .Task.Status "pending"}}
+                <div class="flex flex-wrap gap-3">
+                    <form action="/tasks/{{.Task.ID}}/complete" method="POST" class="inline">
+                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors">
+                            Mark Complete
+                        </button>
+                    </form>
+                    <form action="/tasks/{{.Task.ID}}/skip" method="POST" class="inline">
+                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                        <button type="submit" class="bg-gray-500 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded-lg transition-colors">
+                            Skip
+                        </button>
+                    </form>
+                </div>
+                {{else if eq .Task.Status "completed"}}
+                <div class="flex items-center gap-2 text-green-600">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span class="font-medium">This task has been completed</span>
+                </div>
+                {{else if eq .Task.Status "skipped"}}
+                <div class="flex items-center gap-2 text-gray-500">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"></path>
+                    </svg>
+                    <span class="font-medium">This task has been skipped</span>
+                </div>
+                {{end}}
+            </div>
+        </div>
+    </div>
+
+    <!-- Notes Section -->
+    {{if .Task.Notes}}
+    <div class="bg-white rounded-lg shadow-md p-6 mt-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Notes</h2>
+        <p class="text-gray-700 whitespace-pre-wrap">{{.Task.Notes}}</p>
+    </div>
+    {{end}}
+</div>
+
+<!-- Copy to Clipboard Script -->
+<script>
+document.querySelectorAll('.copy-field').forEach(field => {
+    field.addEventListener('click', async () => {
+        const value = field.dataset.value;
+        try {
+            await navigator.clipboard.writeText(value);
+            // Show feedback
+            const originalBg = field.classList.contains('bg-gray-50') ? 'bg-gray-50' : 'bg-green-50';
+            field.classList.remove('bg-gray-50');
+            field.classList.add('bg-green-100');
+            setTimeout(() => {
+                field.classList.remove('bg-green-100');
+                field.classList.add('bg-gray-50');
+            }, 500);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
+    });
+});
+</script>
+{{end}}

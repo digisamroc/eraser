@@ -1,0 +1,40 @@
+{{if .Responses}}
+<div class="space-y-3">
+    {{range .Responses}}
+    <div class="flex items-center gap-3 p-2 rounded-lg hover:bg-opacity-50" style="background: var(--bg-elevated);">
+        {{if eq .ResponseType "success"}}
+        <span class="status-dot status-dot-success"></span>
+        {{else if eq .ResponseType "form_required"}}
+        <span class="status-dot status-dot-warning"></span>
+        {{else if eq .ResponseType "confirmation_required"}}
+        <span class="status-dot" style="background: rgb(99, 102, 241);"></span>
+        {{else if eq .ResponseType "rejected"}}
+        <span class="status-dot status-dot-error"></span>
+        {{else}}
+        <span class="status-dot" style="background: rgb(156, 163, 175);"></span>
+        {{end}}
+        <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-primary truncate">{{.BrokerName}}</p>
+            <p class="text-xs text-muted truncate">{{.EmailSubject}}</p>
+        </div>
+        <div class="text-right">
+            <span class="text-xs px-2 py-1 rounded-full
+                {{if eq .ResponseType "success"}}bg-green-100 text-green-800
+                {{else if eq .ResponseType "form_required"}}bg-yellow-100 text-yellow-800
+                {{else if eq .ResponseType "confirmation_required"}}bg-indigo-100 text-indigo-800
+                {{else if eq .ResponseType "rejected"}}bg-red-100 text-red-800
+                {{else}}bg-gray-100 text-gray-800{{end}}">
+                {{.ResponseType}}
+            </span>
+            {{if .NeedsReview}}
+            <span class="ml-1 text-xs px-2 py-1 rounded-full bg-orange-100 text-orange-800">Review</span>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+</div>
+{{else}}
+<div class="text-center py-8">
+    <p class="text-secondary">No responses found</p>
+</div>
+{{end}}

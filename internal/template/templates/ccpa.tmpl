@@ -1,0 +1,49 @@
+To Whom It May Concern at {{.BrokerName}},
+
+I am a California resident writing to exercise my rights under the California Consumer Privacy Act (CCPA) and the California Privacy Rights Act (CPRA). I am requesting that you delete all personal information you have collected about me.
+
+PERSONAL IDENTIFICATION:
+- Full Name: {{.FullName}}
+- Email Address: {{.Email}}
+{{- if .Address}}
+- Address: {{.Address}}
+{{- end}}
+{{- if .City}}
+- City: {{.City}}
+{{- end}}
+{{- if .State}}
+- State: {{.State}}
+{{- end}}
+{{- if .ZipCode}}
+- ZIP Code: {{.ZipCode}}
+{{- end}}
+{{- if .Phone}}
+- Phone: {{.Phone}}
+{{- end}}
+{{- if .DateOfBirth}}
+- Date of Birth: {{.DateOfBirth}}
+{{- end}}
+
+LEGAL BASIS:
+Under California Civil Code Section 1798.105, I have the right to request deletion of my personal information. This includes:
+- Identifiers (name, address, email, phone number, IP address)
+- Commercial information
+- Internet or network activity information
+- Geolocation data
+- Inferences drawn from any of the above
+
+REQUEST:
+1. Delete all personal information you have collected about me
+2. Direct any service providers to delete my personal information
+3. Notify all third parties to whom you have sold or shared my personal information to delete it
+4. Confirm completion of this request within 45 days as required by law
+
+Please note that under CCPA Section 1798.105(c), you must respond to this request within 45 days. You may not discriminate against me for exercising these rights under Section 1798.125.
+
+If you need to verify my identity, please contact me at {{.Email}}. I am prepared to provide reasonable verification as required.
+
+Thank you for your compliance with California privacy law.
+
+Sincerely,
+{{.FullName}}
+{{.Date}}

@@ -1,0 +1,100 @@
+{{define "content"}}
+<div class="min-h-[80vh] flex items-center justify-center py-8">
+    <div class="max-w-lg w-full fade-in-up">
+        <div class="card p-8">
+            <!-- Progress Steps -->
+            <div class="flex justify-center mb-8">
+                <div class="flex items-center gap-2">
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-white" style="background: var(--accent);">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                    </div>
+                    <div class="w-12 h-1 rounded" style="background: var(--accent);"></div>
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-white" style="background: var(--accent);">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                    </div>
+                    <div class="w-12 h-1 rounded" style="background: var(--accent);"></div>
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-white" style="background: var(--accent);">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <h1 class="font-display text-2xl font-bold text-primary mb-2">Test Your Setup</h1>
+                <p class="text-secondary">Let's make sure everything works</p>
+            </div>
+
+            <!-- Configuration Summary -->
+            <div class="p-4 rounded-xl mb-6" style="background: var(--bg-elevated);">
+                <h3 class="font-medium text-primary mb-3">Your Configuration</h3>
+                <div class="grid grid-cols-2 gap-2 text-sm">
+                    <span class="text-muted">Name:</span>
+                    <span class="text-primary">{{.Profile.FirstName}} {{.Profile.LastName}}</span>
+                    <span class="text-muted">Email:</span>
+                    <span class="text-primary">{{.Profile.Email}}</span>
+                    <span class="text-muted">Provider:</span>
+                    <span class="text-primary">Gmail SMTP</span>
+                </div>
+            </div>
+
+            <!-- Test Email Section -->
+            <div class="text-center space-y-4 mb-8">
+                <div class="w-20 h-20 mx-auto rounded-2xl flex items-center justify-center" style="background: var(--accent-muted);">
+                    <svg class="w-10 h-10 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                </div>
+
+                <p class="text-secondary">
+                    We'll send a test email to <strong class="text-primary">{{.Profile.Email}}</strong> to verify your setup.
+                </p>
+
+                <div id="test-result"></div>
+
+                <button
+                    hx-post="/setup/test/send"
+                    hx-target="#test-result"
+                    hx-swap="innerHTML"
+                    hx-indicator="#test-spinner"
+                    class="btn btn-primary">
+                    <span id="test-spinner" class="htmx-indicator">
+                        <span class="spinner"></span>
+                    </span>
+                    Send Test Email
+                </button>
+
+                <p class="text-sm text-muted">
+                    Don't see the email? Check your spam folder.
+                </p>
+            </div>
+
+            <!-- Skip Option -->
+            <div class="pt-6 border-t border-[var(--border)] text-center">
+                <p class="text-sm text-muted mb-3">Want to skip the test?</p>
+                <a href="/setup/complete" class="text-accent hover:underline font-medium">
+                    Skip and Complete Setup
+                </a>
+            </div>
+
+            <!-- Navigation -->
+            <div class="flex justify-between pt-6">
+                <a href="/setup/email" class="btn btn-ghost">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                    Back
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{template "layout" .}}

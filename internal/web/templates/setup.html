@@ -1,0 +1,76 @@
+{{define "content"}}
+<div class="max-w-2xl mx-auto fade-in">
+    <div class="bg-white rounded-lg shadow-md p-8">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-900">Welcome to Eraser</h1>
+            <p class="mt-2 text-gray-600">Let's set up your privacy protection</p>
+        </div>
+
+        <div class="space-y-6">
+            <!-- Step indicator -->
+            <div class="flex justify-center mb-8">
+                <div class="flex items-center">
+                    <div class="flex items-center justify-center w-10 h-10 bg-indigo-600 rounded-full text-white font-bold">1</div>
+                    <div class="w-16 h-1 bg-gray-300"></div>
+                    <div class="flex items-center justify-center w-10 h-10 bg-gray-300 rounded-full text-gray-500 font-bold">2</div>
+                    <div class="w-16 h-1 bg-gray-300"></div>
+                    <div class="flex items-center justify-center w-10 h-10 bg-gray-300 rounded-full text-gray-500 font-bold">3</div>
+                </div>
+            </div>
+
+            <!-- Welcome content -->
+            <div class="text-center space-y-4">
+                <div class="mx-auto w-24 h-24 bg-indigo-100 rounded-full flex items-center justify-center">
+                    <svg class="w-12 h-12 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                </div>
+
+                <h2 class="text-xl font-semibold text-gray-900">Take Control of Your Data</h2>
+                <p class="text-gray-600 max-w-md mx-auto">
+                    Eraser helps you send removal requests to 750+ data brokers who may be selling your personal information.
+                </p>
+
+                <div class="bg-gray-50 rounded-lg p-4 text-left">
+                    <h3 class="font-medium text-gray-900 mb-2">What you'll need:</h3>
+                    <ul class="space-y-2 text-sm text-gray-600">
+                        <li class="flex items-center">
+                            <svg class="w-5 h-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                            </svg>
+                            Your name and email address
+                        </li>
+                        <li class="flex items-center">
+                            <svg class="w-5 h-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                            </svg>
+                            5 minutes to set up email sending
+                        </li>
+                        <li class="flex items-center">
+                            <svg class="w-5 h-5 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                            </svg>
+                            A free Resend account (we'll guide you)
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="pt-6">
+                    <a href="/setup/profile" class="inline-flex items-center px-6 py-3 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 transition-colors">
+                        Get Started
+                        <svg class="ml-2 w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                        </svg>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <p class="text-center text-gray-500 text-sm mt-6">
+        Your data stays on your computer. Nothing is sent to external servers.
+    </p>
+</div>
+{{end}}
+
+{{template "layout" .}}

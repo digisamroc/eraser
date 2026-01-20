@@ -1,0 +1,296 @@
+{{define "content"}}
+<div class="fade-in-up">
+    <!-- Hero Section -->
+    <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10">
+        <div class="flex items-center gap-5">
+            <div class="float">
+                <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center" style="box-shadow: 0 0 30px var(--accent-glow);">
+                    <svg class="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                </div>
+            </div>
+            <div>
+                <h1 class="font-display text-3xl font-bold text-primary">Welcome back, {{.Profile.FirstName}}</h1>
+                <p class="text-secondary mt-1">Your privacy protection overview</p>
+            </div>
+        </div>
+        <a href="/brokers" class="btn btn-primary">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+            </svg>
+            Send Removal Requests
+        </a>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8 stagger">
+        <!-- Total Brokers -->
+        <a href="/brokers" class="card p-5 hover:border-[var(--accent)] transition-colors cursor-pointer group">
+            <div class="flex items-start justify-between">
+                <div>
+                    <p class="text-sm text-muted mb-1">Total Brokers</p>
+                    <p class="font-display text-3xl font-bold text-primary">{{.Stats.TotalBrokers}}</p>
+                </div>
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform" style="background: var(--accent-muted);">
+                    <svg class="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    </svg>
+                </div>
+            </div>
+            <p class="text-xs text-muted mt-3">View all brokers</p>
+        </a>
+
+        <!-- Sent -->
+        <a href="/history?status=sent" class="card p-5 hover:border-[var(--success)] transition-colors cursor-pointer group">
+            <div class="flex items-start justify-between">
+                <div>
+                    <p class="text-sm text-muted mb-1">Requests Sent</p>
+                    <p class="font-display text-3xl font-bold text-success">{{.Stats.Sent}}</p>
+                </div>
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform" style="background: rgba(16, 185, 129, 0.15);">
+                    <svg class="w-5 h-5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+            </div>
+            <p class="text-xs text-muted mt-3">View sent requests</p>
+        </a>
+
+        <!-- Failed -->
+        <a href="/history?status=failed" class="card p-5 hover:border-[var(--error)] transition-colors cursor-pointer group">
+            <div class="flex items-start justify-between">
+                <div>
+                    <p class="text-sm text-muted mb-1">Failed</p>
+                    <p class="font-display text-3xl font-bold text-error">{{.Stats.Failed}}</p>
+                </div>
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform" style="background: rgba(244, 63, 94, 0.15);">
+                    <svg class="w-5 h-5 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+            </div>
+            <p class="text-xs text-muted mt-3">View failed requests</p>
+        </a>
+
+        <!-- Pending -->
+        <a href="/brokers?status=pending" class="card p-5 hover:border-[var(--warning)] transition-colors cursor-pointer group">
+            <div class="flex items-start justify-between">
+                <div>
+                    <p class="text-sm text-muted mb-1">Pending</p>
+                    <p class="font-display text-3xl font-bold text-warning">{{.Stats.Pending}}</p>
+                </div>
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform" style="background: rgba(245, 158, 11, 0.15);">
+                    <svg class="w-5 h-5 text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+            </div>
+            <p class="text-xs text-muted mt-3">View pending brokers</p>
+        </a>
+    </div>
+
+    <!-- Pipeline Status Card -->
+    {{if .PipelineStats}}
+    <div class="card p-6 mb-8">
+        <div class="flex items-center justify-between mb-6">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(99, 102, 241, 0.15);">
+                    <svg class="w-5 h-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/>
+                    </svg>
+                </div>
+                <div>
+                    <h2 class="font-display text-lg font-semibold text-primary">Response Pipeline</h2>
+                    <p class="text-sm text-muted">Track broker responses and required actions</p>
+                </div>
+            </div>
+            <a href="/pipeline" class="btn btn-secondary">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+                View Pipeline
+            </a>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <!-- Awaiting Response -->
+            <a href="/pipeline?status=awaiting_response" class="p-4 rounded-lg text-center hover:ring-2 hover:ring-[var(--border)] transition-all cursor-pointer" style="background: var(--bg-elevated);">
+                <p class="text-2xl font-bold text-primary">{{.PipelineStats.AwaitingResponse}}</p>
+                <p class="text-xs text-muted mt-1">Waiting for Reply</p>
+            </a>
+            <!-- Confirmed -->
+            <a href="/pipeline?status=confirmed" class="p-4 rounded-lg text-center hover:ring-2 hover:ring-green-500/50 transition-all cursor-pointer" style="background: rgba(16, 185, 129, 0.1);">
+                <p class="text-2xl font-bold text-green-500">{{.PipelineStats.Confirmed}}</p>
+                <p class="text-xs text-muted mt-1">Removal Confirmed</p>
+            </a>
+            <!-- Rejected -->
+            <a href="/pipeline?status=rejected" class="p-4 rounded-lg text-center hover:ring-2 hover:ring-red-500/50 transition-all cursor-pointer" style="background: rgba(244, 63, 94, 0.1);">
+                <p class="text-2xl font-bold text-red-500">{{.PipelineStats.Rejected}}</p>
+                <p class="text-xs text-muted mt-1">Request Rejected</p>
+            </a>
+            <!-- Action Needed (unified: forms, confirmations, captchas, reviews) -->
+            <a href="/tasks" class="p-4 rounded-lg text-center hover:ring-2 hover:ring-orange-500/50 transition-all cursor-pointer" style="background: rgba(249, 115, 22, 0.1);">
+                <p class="text-2xl font-bold text-orange-500">{{.PipelineStats.PendingTasks}}</p>
+                <p class="text-xs text-muted mt-1">Action Needed</p>
+            </a>
+        </div>
+
+        {{if gt .PipelineStats.PendingTasks 0}}
+        <a href="/tasks" class="mt-4 p-3 rounded-lg flex items-center justify-between hover:ring-2 hover:ring-orange-500/50 transition-all" style="background: rgba(249, 115, 22, 0.1); border: 1px solid rgba(249, 115, 22, 0.3);">
+            <div class="flex items-center gap-2">
+                <svg class="w-5 h-5 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                </svg>
+                <span class="text-sm font-medium text-orange-600">{{.PipelineStats.PendingTasks}} item{{if gt .PipelineStats.PendingTasks 1}}s{{end}} need{{if eq .PipelineStats.PendingTasks 1}}s{{end}} your attention</span>
+            </div>
+            <span class="btn btn-primary text-xs px-3 py-1.5">
+                View Tasks
+            </span>
+        </a>
+        {{end}}
+    </div>
+    {{end}}
+
+    <!-- Progress & Activity Row -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Progress Ring Card -->
+        {{if gt .Stats.TotalBrokers 0}}
+        <div class="card p-6">
+            <h2 class="font-display text-lg font-semibold text-primary mb-6">Coverage Progress</h2>
+            <div class="flex items-center gap-8">
+                <!-- SVG Progress Ring -->
+                <div class="relative">
+                    <svg class="progress-ring w-32 h-32" viewBox="0 0 100 100">
+                        <circle class="progress-ring-bg" cx="50" cy="50" r="45" fill="none" stroke-width="8"/>
+                        <circle class="progress-ring-fill" cx="50" cy="50" r="45" fill="none" stroke-width="8"
+                            stroke-dasharray="283"
+                            id="progress-circle"/>
+                    </svg>
+                    <div class="absolute inset-0 flex flex-col items-center justify-center">
+                        <span class="font-display text-2xl font-bold text-primary" id="progress-percent">0%</span>
+                        <span class="text-xs text-muted">complete</span>
+                    </div>
+                </div>
+                <div class="flex-1">
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="status-dot status-dot-success"></span>
+                                <span class="text-sm text-secondary">Sent</span>
+                            </div>
+                            <span class="text-sm font-medium text-primary">{{.Stats.Sent}}</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="status-dot status-dot-warning"></span>
+                                <span class="text-sm text-secondary">Pending</span>
+                            </div>
+                            <span class="text-sm font-medium text-primary">{{.Stats.Pending}}</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="status-dot status-dot-error"></span>
+                                <span class="text-sm text-secondary">Failed</span>
+                            </div>
+                            <span class="text-sm font-medium text-primary">{{.Stats.Failed}}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <script>
+                (function() {
+                    const sent = {{.Stats.Sent}};
+                    const total = {{.Stats.TotalBrokers}};
+                    const percent = total > 0 ? (sent / total * 100).toFixed(0) : 0;
+                    const circle = document.getElementById('progress-circle');
+                    const percentEl = document.getElementById('progress-percent');
+
+                    // Calculate stroke-dashoffset (283 is circumference of r=45)
+                    const offset = 283 - (283 * percent / 100);
+                    circle.style.strokeDashoffset = offset;
+                    percentEl.textContent = percent + '%';
+                })();
+            </script>
+        </div>
+        {{end}}
+
+        <!-- Recent Activity Card -->
+        <div class="card p-6">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="font-display text-lg font-semibold text-primary">Recent Activity</h2>
+                <a href="/history" class="text-sm text-accent hover:underline">View all</a>
+            </div>
+
+            {{if .RecentHistory}}
+            <div class="space-y-4">
+                {{range .RecentHistory}}
+                <div class="flex items-center gap-4">
+                    {{if eq .Status "sent"}}
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center" style="background: rgba(16, 185, 129, 0.15);">
+                        <svg class="w-4 h-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                    </div>
+                    {{else}}
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center" style="background: rgba(244, 63, 94, 0.15);">
+                        <svg class="w-4 h-4 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </div>
+                    {{end}}
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-primary truncate">{{.BrokerName}}</p>
+                        <p class="text-xs text-muted">{{formatDate .SentAt}}</p>
+                    </div>
+                    {{if eq .Status "sent"}}
+                    <span class="badge badge-success">Sent</span>
+                    {{else}}
+                    <span class="badge badge-error">Failed</span>
+                    {{end}}
+                </div>
+                {{end}}
+            </div>
+            {{else}}
+            <div class="text-center py-8">
+                <div class="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4" style="background: var(--bg-elevated);">
+                    <svg class="w-8 h-8 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                </div>
+                <p class="text-secondary mb-1">No activity yet</p>
+                <p class="text-sm text-muted">Start sending removal requests to see your history</p>
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="mt-8 card p-6">
+        <h2 class="font-display text-lg font-semibold text-primary mb-4">Quick Actions</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <a href="/brokers" class="btn btn-secondary justify-start">
+                <svg class="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+                Browse Data Brokers
+            </a>
+            <a href="/history" class="btn btn-secondary justify-start">
+                <svg class="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                View History
+            </a>
+            <a href="/settings" class="btn btn-secondary justify-start">
+                <svg class="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Update Settings
+            </a>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{template "layout" .}}

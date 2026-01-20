@@ -1,0 +1,537 @@
+{{define "content"}}
+<div class="space-y-6 fade-in-up">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+            <h1 class="font-display text-3xl font-bold text-primary">Action Needed</h1>
+            <p class="text-secondary mt-1">Tasks and forms requiring your attention</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <a href="/pipeline" class="btn btn-secondary">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                </svg>
+                Back to Pipeline
+            </a>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="card p-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg flex items-center justify-center" style="background: var(--accent-muted);">
+                    <svg class="w-5 h-5" style="color: var(--accent);" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs text-muted">Total Action Items</p>
+                    <p class="font-display text-2xl font-bold text-primary">{{.TotalActionItems}}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-4 cursor-pointer hover:ring-2 hover:ring-blue-400" onclick="filterItems('form')">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-blue-100">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs text-muted">Forms to Fill</p>
+                    <p class="font-display text-2xl font-bold text-blue-600">{{.FormsNeedingAction}}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-4 cursor-pointer hover:ring-2 hover:ring-orange-400" onclick="filterItems('review')">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-orange-100">
+                    <svg class="w-5 h-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs text-muted">Needs Review</p>
+                    <p class="font-display text-2xl font-bold text-orange-600">{{.NeedsReview}}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-4 cursor-pointer hover:ring-2 hover:ring-green-400" onclick="filterItems('completed')">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg flex items-center justify-center bg-green-100">
+                    <svg class="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-xs text-muted">Completed</p>
+                    <p class="font-display text-2xl font-bold text-green-600">{{add .CompletedTasks .FilledForms}}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter Buttons -->
+    <div class="card p-4">
+        <div class="flex flex-wrap items-center gap-3">
+            <span class="text-sm text-muted">Filter:</span>
+            <button class="filter-btn active" data-filter="all" onclick="filterItems('all')">
+                All
+                <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background: var(--bg-elevated);">{{.TotalActionItems}}</span>
+            </button>
+            <button class="filter-btn" data-filter="form" onclick="filterItems('form')">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                Forms
+                <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">{{.PendingForms}}</span>
+            </button>
+            <button class="filter-btn" data-filter="captcha" onclick="filterItems('captcha')">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                </svg>
+                CAPTCHA
+                <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-800">{{.CaptchaForms}}</span>
+            </button>
+            <button class="filter-btn" data-filter="confirmation" onclick="filterItems('confirmation')">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                </svg>
+                Confirmation
+            </button>
+            <button class="filter-btn" data-filter="review" onclick="filterItems('review')">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                </svg>
+                Needs Review
+                <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-800">{{.NeedsReview}}</span>
+            </button>
+            <button class="filter-btn" data-filter="completed" onclick="filterItems('completed')">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                Completed
+                <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-800">{{add .CompletedTasks .FilledForms}}</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Action Items List -->
+    <div class="card overflow-hidden">
+        <div id="items-list" class="divide-y divide-[var(--border)]">
+            {{$hasItems := false}}
+
+            <!-- Forms needing action (only pending status - captcha forms are shown as tasks) -->
+            {{range .Forms}}
+            {{if eq .Status "pending"}}
+            {{$hasItems = true}}
+            <div class="action-item p-4 hover:bg-opacity-50 transition-colors"
+                 data-type="form"
+                 data-status="pending"
+                 style="background: var(--bg-surface);">
+                <div class="flex items-start gap-4">
+                    <!-- Status Icon -->
+                    <div class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center bg-blue-100 text-blue-600">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                    </div>
+
+                    <!-- Details -->
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-sm font-semibold text-primary">{{.BrokerName}}</h3>
+                            <span class="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">Form</span>
+                        </div>
+                        {{if .EmailSubject}}
+                        <p class="text-xs text-muted mt-1 truncate">{{.EmailSubject}}</p>
+                        {{end}}
+                        <p class="text-xs text-blue-600 mt-1 truncate">
+                            <a href="{{.FormURL}}" target="_blank" class="hover:underline">{{.FormURL}}</a>
+                        </p>
+                        <p class="text-xs text-muted mt-1">Detected {{.DetectedAt.Format "Jan 2, 2006 3:04 PM"}}</p>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="flex-shrink-0 flex items-center gap-2">
+                        <a href="{{.FormURL}}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary text-xs px-3 py-1.5">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                            </svg>
+                            Open Form
+                        </a>
+                        <button class="btn btn-primary text-xs px-3 py-1.5"
+                            hx-post="/forms/{{.BrokerID}}/complete"
+                            hx-target="closest .action-item"
+                            hx-swap="outerHTML"
+                            hx-confirm="Mark this form as complete?">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            Done
+                        </button>
+                        <button class="btn btn-ghost text-xs px-2 py-1.5 text-gray-500 hover:text-gray-700"
+                            hx-post="/forms/{{.BrokerID}}/skip"
+                            hx-target="closest .action-item"
+                            hx-swap="outerHTML"
+                            hx-confirm="Skip this item?">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {{end}}
+            {{end}}
+
+            <!-- Tasks (confirmation, review, etc.) -->
+            {{range .Tasks}}
+            {{$hasItems = true}}
+            <div class="action-item p-4 hover:bg-opacity-50 transition-colors"
+                 data-type="{{.TaskType}}"
+                 data-status="{{.Status}}"
+                 style="background: var(--bg-surface);">
+                <div class="flex items-start gap-4">
+                    <!-- Task Type Icon -->
+                    <div class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center
+                        {{if eq .TaskType "captcha"}}bg-yellow-100 text-yellow-600
+                        {{else if eq .TaskType "manual_form"}}bg-blue-100 text-blue-600
+                        {{else if eq .TaskType "review"}}bg-orange-100 text-orange-600
+                        {{else if eq .TaskType "confirmation"}}bg-indigo-100 text-indigo-600
+                        {{else}}bg-gray-100 text-gray-600{{end}}">
+                        {{if eq .TaskType "captcha"}}
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                        </svg>
+                        {{else if eq .TaskType "manual_form"}}
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        {{else if eq .TaskType "review"}}
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                        </svg>
+                        {{else if eq .TaskType "confirmation"}}
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                        </svg>
+                        {{else}}
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        {{end}}
+                    </div>
+
+                    <!-- Task Details -->
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-sm font-semibold text-primary">{{.BrokerName}}</h3>
+                            <span class="text-xs px-2 py-0.5 rounded-full
+                                {{if eq .TaskType "captcha"}}bg-yellow-100 text-yellow-800
+                                {{else if eq .TaskType "manual_form"}}bg-blue-100 text-blue-800
+                                {{else if eq .TaskType "review"}}bg-orange-100 text-orange-800
+                                {{else if eq .TaskType "confirmation"}}bg-indigo-100 text-indigo-800
+                                {{else}}bg-gray-100 text-gray-800{{end}}">
+                                {{if eq .TaskType "confirmation"}}Confirmation{{else if eq .TaskType "manual_form"}}Manual Form{{else if eq .TaskType "review"}}Review{{else}}{{.TaskType}}{{end}}
+                            </span>
+                        </div>
+                        {{if .FormURL}}
+                        <p class="text-xs text-blue-600 mt-1 truncate">
+                            <a href="{{.FormURL}}" target="_blank" class="hover:underline">{{.FormURL}}</a>
+                        </p>
+                        {{end}}
+                        {{if .Notes}}
+                        <p class="text-sm text-secondary mt-2">{{.Notes}}</p>
+                        {{end}}
+                        <p class="text-xs text-muted mt-2">Created {{.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}</p>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="flex-shrink-0 flex items-center gap-2">
+                        {{if eq .TaskType "captcha"}}
+                        <a href="/tasks/{{.ID}}/helper" class="btn btn-primary text-xs px-3 py-1.5">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                            </svg>
+                            Open Helper
+                        </a>
+                        {{else if .FormURL}}
+                        <a href="{{.FormURL}}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary text-xs px-3 py-1.5">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                            </svg>
+                            Open
+                        </a>
+                        {{end}}
+                        <button
+                            class="btn btn-primary text-xs px-3 py-1.5"
+                            hx-post="/tasks/{{.ID}}/complete"
+                            hx-target="closest .action-item"
+                            hx-swap="outerHTML"
+                            hx-confirm="Mark this task as complete?">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            Done
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {{end}}
+
+            <!-- Review Items (parser was unsure) -->
+            {{range .ReviewItems}}
+            {{$hasItems = true}}
+            <div class="action-item p-4 hover:bg-opacity-50 transition-colors"
+                 data-type="review"
+                 data-status="pending"
+                 style="background: var(--bg-surface);">
+                <div class="flex items-start gap-4">
+                    <!-- Review Icon -->
+                    <div class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center bg-orange-100 text-orange-600">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                        </svg>
+                    </div>
+
+                    <!-- Details -->
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-sm font-semibold text-primary">{{.BrokerName}}</h3>
+                            <span class="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-800">Needs Review</span>
+                        </div>
+                        <p class="text-xs text-muted mt-1 truncate">{{.EmailSubject}}</p>
+                        <p class="text-xs text-secondary mt-1">Response type: {{.ResponseType}}</p>
+                        <p class="text-xs text-muted mt-1">Received {{.ReceivedAt.Format "Jan 2, 2006 3:04 PM"}}</p>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="flex-shrink-0 flex items-center gap-2">
+                        <a href="/pipeline/responses?broker={{.BrokerID}}" class="btn btn-secondary text-xs px-3 py-1.5">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                            </svg>
+                            Review
+                        </a>
+                        <button
+                            class="btn btn-primary text-xs px-3 py-1.5"
+                            hx-post="/api/pipeline/responses/{{.ID}}/reviewed"
+                            hx-target="closest .action-item"
+                            hx-swap="outerHTML"
+                            hx-confirm="Mark this as reviewed?">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                            Done
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {{end}}
+
+            <!-- Completed Tasks (for completed filter) -->
+            {{range .CompletedTasksList}}
+            <div class="action-item p-4 hover:bg-opacity-50 transition-colors hidden"
+                 data-type="{{.TaskType}}"
+                 data-status="completed"
+                 style="background: var(--bg-surface);">
+                <div class="flex items-start gap-4">
+                    <div class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center bg-green-100 text-green-600">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-sm font-semibold text-primary">{{.BrokerName}}</h3>
+                            <span class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-800">Completed</span>
+                        </div>
+                        <p class="text-xs text-muted mt-1">Task completed</p>
+                    </div>
+                    <span class="text-green-600 text-sm font-medium flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                        Done
+                    </span>
+                </div>
+            </div>
+            {{end}}
+
+            <!-- Completed Forms (for completed filter) -->
+            {{range .Forms}}
+            {{if eq .Status "filled"}}
+            <div class="action-item p-4 hover:bg-opacity-50 transition-colors hidden"
+                 data-type="form"
+                 data-status="completed"
+                 style="background: var(--bg-surface);">
+                <div class="flex items-start gap-4">
+                    <div class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center bg-green-100 text-green-600">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-sm font-semibold text-primary">{{.BrokerName}}</h3>
+                            <span class="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-800">Completed</span>
+                        </div>
+                        <p class="text-xs text-muted mt-1">Form submitted successfully</p>
+                    </div>
+                    <span class="text-green-600 text-sm font-medium flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                        Done
+                    </span>
+                </div>
+            </div>
+            {{end}}
+            {{end}}
+
+            <!-- Empty State -->
+            {{if not $hasItems}}
+            <div class="p-12 text-center" id="empty-state">
+                <div class="w-16 h-16 mx-auto rounded-full bg-emerald-100 flex items-center justify-center mb-4">
+                    <svg class="w-8 h-8 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-primary mb-2">All caught up!</h3>
+                <p class="text-secondary">No pending action items at the moment.</p>
+                <a href="/pipeline" class="btn btn-secondary mt-4">View Pipeline</a>
+            </div>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Instructions Card -->
+    <div class="card p-6">
+        <h3 class="font-display text-lg font-semibold text-primary mb-4">How to Complete Tasks</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="p-4 rounded-lg" style="background: var(--bg-elevated);">
+                <div class="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center mb-3">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                </div>
+                <h4 class="text-sm font-semibold text-primary mb-1">Opt-Out Forms</h4>
+                <p class="text-xs text-secondary">Some brokers require filling out an online form. Click "Open Form", enter your details, and submit.</p>
+            </div>
+            <div class="p-4 rounded-lg" style="background: var(--bg-elevated);">
+                <div class="w-8 h-8 rounded-lg bg-yellow-100 text-yellow-600 flex items-center justify-center mb-3">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                    </svg>
+                </div>
+                <h4 class="text-sm font-semibold text-primary mb-1">CAPTCHA Forms</h4>
+                <p class="text-xs text-secondary">Click "Solve CAPTCHA" for a helper page with copy buttons for your info. Complete the CAPTCHA, then paste your details.</p>
+            </div>
+            <div class="p-4 rounded-lg" style="background: var(--bg-elevated);">
+                <div class="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center mb-3">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    </svg>
+                </div>
+                <h4 class="text-sm font-semibold text-primary mb-1">Email Confirmations</h4>
+                <p class="text-xs text-secondary">Check your email for confirmation links from brokers. Click the link to verify your removal request.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .filter-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .filter-btn:hover {
+        color: var(--text-primary);
+        border-color: var(--text-muted);
+    }
+
+    .filter-btn.active {
+        color: var(--accent);
+        border-color: var(--accent);
+        background: var(--accent-muted);
+    }
+
+    .action-item {
+        transition: background 0.2s ease;
+    }
+
+    .action-item:hover {
+        background: var(--bg-elevated) !important;
+    }
+
+    .action-item.hidden {
+        display: none;
+    }
+</style>
+
+<script>
+function filterItems(type) {
+    // Update active button
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === type);
+    });
+
+    // Filter items
+    document.querySelectorAll('.action-item').forEach(item => {
+        const itemType = item.dataset.type;
+        const itemStatus = item.dataset.status;
+
+        if (type === 'all') {
+            // Show all pending items, hide completed
+            if (itemStatus === 'completed') {
+                item.classList.add('hidden');
+            } else {
+                item.classList.remove('hidden');
+            }
+        } else if (type === 'completed') {
+            // Show only completed items
+            if (itemStatus === 'completed') {
+                item.classList.remove('hidden');
+            } else {
+                item.classList.add('hidden');
+            }
+        } else if (type === 'form') {
+            // Show forms (not captcha)
+            if (itemType === 'form' && itemStatus !== 'completed') {
+                item.classList.remove('hidden');
+            } else {
+                item.classList.add('hidden');
+            }
+        } else {
+            // Filter by specific type
+            if (itemType === type && itemStatus !== 'completed') {
+                item.classList.remove('hidden');
+            } else {
+                item.classList.add('hidden');
+            }
+        }
+    });
+}
+</script>
+{{end}}

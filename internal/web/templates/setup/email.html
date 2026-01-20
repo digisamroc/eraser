@@ -1,0 +1,142 @@
+{{define "content"}}
+<div class="min-h-[80vh] flex items-center justify-center py-8">
+    <div class="max-w-lg w-full fade-in-up">
+        <div class="card p-8">
+            <!-- Progress Steps -->
+            <div class="flex justify-center mb-8">
+                <div class="flex items-center gap-2">
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-white" style="background: var(--accent);">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                    </div>
+                    <div class="w-12 h-1 rounded" style="background: var(--accent);"></div>
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-white" style="background: var(--accent);">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                    </div>
+                    <div class="w-12 h-1 rounded" style="background: var(--accent);"></div>
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center font-display font-bold text-white" style="background: var(--accent);">3</div>
+                </div>
+            </div>
+
+            <!-- Header -->
+            <div class="text-center mb-6">
+                <h1 class="font-display text-2xl font-bold text-primary mb-2">Connect Your Gmail</h1>
+                <p class="text-secondary">We'll send removal requests from your email</p>
+            </div>
+
+            <!-- Step-by-Step Instructions -->
+            <div class="rounded-xl p-5 mb-6" style="background: var(--bg-elevated); border: 1px solid var(--border);">
+                <h3 class="font-display font-semibold text-primary mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
+                    </svg>
+                    Before you start
+                </h3>
+
+                <div class="space-y-4">
+                    <!-- Step 1 -->
+                    <div class="flex gap-3">
+                        <div class="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold" style="background: var(--accent-muted); color: var(--accent);">1</div>
+                        <div class="flex-1">
+                            <p class="text-primary font-medium text-sm">Enable 2-Step Verification</p>
+                            <p class="text-muted text-sm mt-1">Go to your <a href="https://myaccount.google.com/security" target="_blank" class="text-accent hover:underline">Google Account Security</a> and turn on 2-Step Verification</p>
+                        </div>
+                    </div>
+
+                    <!-- Step 2 -->
+                    <div class="flex gap-3">
+                        <div class="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold" style="background: var(--accent-muted); color: var(--accent);">2</div>
+                        <div class="flex-1">
+                            <p class="text-primary font-medium text-sm">Create an App Password</p>
+                            <p class="text-muted text-sm mt-1">
+                                Visit <a href="https://myaccount.google.com/apppasswords" target="_blank" class="text-accent hover:underline">App Passwords</a>,
+                                select "Mail" and generate a new password
+                            </p>
+                            <a href="https://support.google.com/accounts/answer/185833" target="_blank"
+                               class="inline-flex items-center gap-1 text-xs text-accent hover:underline mt-2">
+                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                Google's guide on App Passwords
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Step 3 -->
+                    <div class="flex gap-3">
+                        <div class="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold" style="background: var(--accent-muted); color: var(--accent);">3</div>
+                        <div class="flex-1">
+                            <p class="text-primary font-medium text-sm">Enter your credentials below</p>
+                            <p class="text-muted text-sm mt-1">Use your Gmail address and the 16-character app password</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <form method="POST" action="/setup/email" class="space-y-5">
+                {{.CSRFField}}
+
+                <!-- Gmail Address -->
+                <div>
+                    <label for="smtp_username" class="label">Gmail Address</label>
+                    <input type="email" name="smtp_username" id="smtp_username"
+                        value="{{.Email.SMTP.Username}}"
+                        class="input {{if .Errors.smtp_username}}border-error{{end}}"
+                        placeholder="you@gmail.com">
+                    {{if .Errors.smtp_username}}
+                    <p class="mt-1 text-sm text-error">{{.Errors.smtp_username}}</p>
+                    {{end}}
+                </div>
+
+                <!-- App Password -->
+                <div>
+                    <label for="smtp_password" class="label">App Password</label>
+                    <input type="password" name="smtp_password" id="smtp_password"
+                        value="{{.Email.SMTP.Password}}"
+                        class="input {{if .Errors.smtp_password}}border-error{{end}}"
+                        placeholder="xxxx xxxx xxxx xxxx">
+                    {{if .Errors.smtp_password}}
+                    <p class="mt-1 text-sm text-error">{{.Errors.smtp_password}}</p>
+                    {{end}}
+                    <p class="mt-1 text-xs text-muted">The 16-character password from step 2 (not your regular Gmail password)</p>
+                </div>
+
+                <!-- Hidden SMTP defaults for Gmail -->
+                <input type="hidden" name="smtp_host" value="{{if .Email.SMTP.Host}}{{.Email.SMTP.Host}}{{else}}smtp.gmail.com{{end}}">
+                <input type="hidden" name="smtp_port" value="{{if .Email.SMTP.Port}}{{.Email.SMTP.Port}}{{else}}465{{end}}">
+                <input type="hidden" name="smtp_tls" value="on">
+
+                {{if .Errors.smtp_tls}}
+                <p class="text-sm text-error">{{.Errors.smtp_tls}}</p>
+                {{end}}
+
+                <!-- Navigation -->
+                <div class="flex items-center justify-between pt-4">
+                    <a href="/setup/profile" class="btn btn-ghost">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                        </svg>
+                        Back
+                    </a>
+                    <button type="submit" class="btn btn-primary">
+                        Continue
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Security Note -->
+        <p class="text-center text-xs text-muted mt-4 px-4">
+            Your credentials are stored securely on your computer and never sent to our servers.
+        </p>
+    </div>
+</div>
+{{end}}
+
+{{template "layout" .}}

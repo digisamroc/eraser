@@ -1,5 +1,5 @@
 # Binaries
-eraser
+/eraser
 *.exe
 *.dll
 *.so

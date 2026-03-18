@@ -712,7 +712,7 @@ func (s *Server) handleAPISendOne(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate email content using template engine
-	rendered, err := s.tmplEngine.Render("generic", s.config.Profile, *br)
+	rendered, err := s.tmplEngine.Render(s.config.Options.Template, s.config.Profile, *br)
 	if err != nil {
 		w.Write([]byte(fmt.Sprintf(`<span class="text-red-600">Template error: %s</span>`, template.HTMLEscapeString(err.Error()))))
 		return
@@ -735,7 +735,7 @@ func (s *Server) handleAPISendOne(w http.ResponseWriter, r *http.Request) {
 		BrokerID:   br.ID,
 		BrokerName: br.Name,
 		Email:      br.Email,
-		Template:   "generic",
+		Template:   s.config.Options.Template,
 		SentAt:     time.Now(),
 	}
 
@@ -905,7 +905,7 @@ func (s *Server) processSendJob(job *Job, toSend []BrokerWithStatus, sender emai
 		job.Update(sent, failed, b.Name)
 
 		// Generate email
-		rendered, err := s.tmplEngine.Render("generic", s.config.Profile, b.Broker)
+		rendered, err := s.tmplEngine.Render(s.config.Options.Template, s.config.Profile, b.Broker)
 		if err != nil {
 			failed++
 			job.Update(sent, failed, b.Name)
@@ -932,7 +932,7 @@ func (s *Server) processSendJob(job *Job, toSend []BrokerWithStatus, sender emai
 			BrokerID:   b.ID,
 			BrokerName: b.Name,
 			Email:      b.Email,
-			Template:   "generic",
+			Template:   s.config.Options.Template,
 			SentAt:     time.Now(),
 		}
 
@@ -1435,12 +1435,18 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/setup", http.StatusFound)
 		return
 	}
-
+	
+	// Preserve existing template if available, otherwise default to "generic"
+	templateOption := "generic"
+	if s.config != nil && s.config.Options.Template != "" {
+		templateOption = s.config.Options.Template
+	}
+	
 	cfg := &config.Config{
 		Profile: session.Profile,
 		Email:   session.Email,
 		Options: config.Options{
-			Template:    "generic",
+			Template:    templateOption,
 			RateLimitMs: 2000,
 		},
 	}
@@ -2498,4 +2504,3 @@ func (s *Server) handleAPIJobCancel(w http.ResponseWriter, r *http.Request) {
 	job.Cancel()
 	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
 }
-

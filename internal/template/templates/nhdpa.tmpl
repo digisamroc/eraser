@@ -1,0 +1,50 @@
+Subject: Formal Opt-Out Request Pursuant to NH RSA 507-H (New Hampshire Data Privacy Act)
+
+To the Privacy Compliance Officer / Data Controller:
+
+I am a resident of the State of New Hampshire. I am writing to formally exercise my consumer rights under the New Hampshire Data Privacy Act, codified as NH RSA 507-H.
+
+Pursuant to NH RSA 507-H:4, I(e), I hereby direct you to immediately cease and OPT OUT of the processing of my personal data for the following commercial purposes:
+    - The sale of my personal data to any third parties for monetary or other valuable consideration.
+    - The processing of my personal data for the purposes of targeted advertising.
+    - The processing of my personal data for profiling in furtherance of solely automated decisions that produce legal or similarly significant effects concerning me.
+
+
+To assist your organization in locating my records within your systems and halting the unauthorized processing of my data, the information associated with my relationship to your business is as follows: 
+
+- Full Name: {{.FullName}}
+- Email Address: {{.Email}}
+{{- if .Address}}
+- Address: {{.Address}}
+{{- end}}
+{{- if .City}}
+- City: {{.City}}
+{{- end}}
+{{- if .State}}
+- State/Province: {{.State}}
+{{- end}}
+{{- if .ZipCode}}
+- Postal Code: {{.ZipCode}}
+{{- end}}
+{{- if .Country}}
+- Country: {{.Country}}
+{{- end}}
+{{- if .Phone}}
+- Phone: {{.Phone}}
+{{- end}}
+{{- if .DateOfBirth}}
+- Date of Birth: {{.DateOfBirth}}
+{{- end}}
+
+
+Please be advised that pursuant to NH RSA 507-H:4, III(d), a controller is strictly not required to authenticate an opt-out request. Furthermore, pursuant to NH RSA 507-H:6, V(a), you may not require me to create a new account to process this directive. In accordance with NH RSA 507-H:6, I(g), you are prohibited from discriminating against me for exercising these statutory rights, including altering the price or quality of goods or services provided.
+
+In accordance with NH RSA 507-H:4, III(a), you are required to comply with this request without undue delay, and in no event later than forty-five (45) days from the receipt of this communication.
+
+If you determine that my data is subject to a statutory exemption under NH RSA 507-H:3, or if you refuse to take action on this request for any reason—including an invocation of the fraud exception under NH RSA 507-H:4, III(d)—you must inform me within the initial 45-day period, state your specific, documented justification, and provide clear instructions on how to initiate an internal appeal pursuant to NH RSA 507-H:4, III(b) and IV.
+
+I request that you confirm receipt of this communication and provide written confirmation once my opt-out request has been fully executed across your internal systems and communicated to any relevant downstream third-party processors.
+
+Sincerely,
+{{.FullName}}
+{{.Date}}

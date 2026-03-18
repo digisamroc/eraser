@@ -59,7 +59,7 @@ func NewEngine() (*Engine, error) {
 		templates: make(map[string]*template.Template),
 	}
 
-	templateNames := []string{"gdpr", "ccpa", "generic"}
+	templateNames := []string{"gdpr", "ccpa", "nhdpa", "generic"}
 	for _, name := range templateNames {
 		content, err := embeddedTemplates.ReadFile("templates/" + name + ".tmpl")
 		if err != nil {
@@ -126,6 +126,8 @@ func (e *Engine) getSubject(templateName, brokerName string) string {
 		return fmt.Sprintf("GDPR Data Erasure Request - Article 17 Right to Erasure")
 	case "ccpa":
 		return fmt.Sprintf("CCPA Data Deletion Request - Right to Delete Personal Information")
+	case "nhdpa":
+		return fmt.Sprintf("Formal Opt-Out Request Pursuant to NH RSA 507-H (New Hampshire Data Privacy Act)")
 	default:
 		return fmt.Sprintf("Personal Data Removal Request")
 	}

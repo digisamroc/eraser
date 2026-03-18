@@ -34,7 +34,7 @@ email:
   #   api_key: SG.xxxxxxxxxxxxxxxxxxxx
 
 options:
-  # Template to use: "gdpr", "ccpa", or "generic"
+  # Template to use: "gdpr", "ccpa", "nhdpa" or "generic"
   template: generic
 
   # Delay between emails in milliseconds (avoid spam filters)

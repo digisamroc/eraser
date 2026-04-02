@@ -39,7 +39,10 @@ REQUEST:
 4. Confirm completion of this request within 45 days as required by law
 
 Please note that under CCPA Section 1798.105(c), you must respond to this request within 45 days. You may not discriminate against me for exercising these rights under Section 1798.125.
-
+{{if eq .State "MA"}}
+ADDITIONAL NOTICE — MASSACHUSETTS RESIDENTS:
+As a resident of Massachusetts, I wish to further inform you that in addition to my rights under California law, the retention and sale of my personal information without my consent may constitute an unfair or deceptive practice in violation of Massachusetts General Laws Chapter 93A §§ 2 and 9, which provides a private right of action including treble damages and attorney's fees. Additionally, 201 CMR 17.00 requires all entities holding personal information of Massachusetts residents to implement comprehensive data security programs and prohibits retention of personal data beyond what is reasonably necessary for business purposes. I respectfully request that you take these dual-jurisdiction obligations into account when processing this removal request.
+{{end}}
 If you need to verify my identity, please contact me at {{.Email}}. I am prepared to provide reasonable verification as required.
 
 Thank you for your compliance with California privacy law.

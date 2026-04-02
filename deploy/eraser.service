@@ -1,0 +1,33 @@
+[Unit]
+Description=Eraser — Data Broker Removal Tool
+Documentation=https://github.com/brandonganem/eraser
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=eraser
+Group=eraser
+WorkingDirectory=/opt/eraser
+ExecStart=/opt/eraser/eraser serve --port 8080
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=10
+
+# ── Sandboxing ──────────────────────────────────────────────
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/eraser
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+RestrictSUIDSGID=yes
+MemoryDenyWriteExecute=yes
+
+# Eraser needs outbound SMTP and DNS; restrict everything else.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

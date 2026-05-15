@@ -2294,13 +2294,6 @@ brokers:
       opt_out_url: https://privacy.acuityads.com/opt-out.html
       region: us
       category: marketing
-    - id: imprint-analytics
-      name: Imprint Analytics LLC
-      email: privacy@imprintanalytics.io
-      website: https://www.imprintanalytics.io/
-      opt_out_url: https://imprintanalytics.io/limit-the-use-of-my-sensitive-personal-information/
-      region: us
-      category: marketing
     - id: inbound-insight
       name: Inbound Insight, LLC
       email: info@inboundinsight.com

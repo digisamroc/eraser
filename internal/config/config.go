@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -27,10 +28,29 @@ func checkFilePermissions(path string) error {
 
 type Config struct {
 	Profile  Profile     `yaml:"profile"`
+	Profiles []Profile   `yaml:"profiles,omitempty"`
 	Email    EmailConfig `yaml:"email"`
 	Options  Options     `yaml:"options"`
 	Inbox    InboxConfig `yaml:"inbox,omitempty"`
 	Pipeline Pipeline    `yaml:"pipeline,omitempty"`
+}
+
+// GetProfiles returns all configured profiles. If the profiles array is set,
+// it is returned. Otherwise, the single profile is returned as a one-element
+// slice. This ensures backward compatibility with single-profile configs.
+func (c *Config) GetProfiles() []Profile {
+	if len(c.Profiles) > 0 {
+		return c.Profiles
+	}
+	return []Profile{c.Profile}
+}
+
+// ProfileID returns a stable identifier for a profile, used to namespace
+// history records. Format: "firstname-lastname" lowercased.
+func ProfileID(p Profile) string {
+	id := strings.ToLower(p.FirstName + "-" + p.LastName)
+	id = strings.ReplaceAll(id, " ", "-")
+	return id
 }
 
 // InboxConfig holds IMAP settings for monitoring broker responses
@@ -161,11 +181,18 @@ func Save(path string, cfg *Config) error {
 }
 
 func (c *Config) Validate() error {
-	if c.Profile.FirstName == "" || c.Profile.LastName == "" {
-		return fmt.Errorf("profile: first_name and last_name are required")
-	}
-	if c.Profile.Email == "" {
-		return fmt.Errorf("profile: email is required")
+	profiles := c.GetProfiles()
+	for i, p := range profiles {
+		prefix := "profile"
+		if len(profiles) > 1 {
+			prefix = fmt.Sprintf("profiles[%d]", i)
+		}
+		if p.FirstName == "" || p.LastName == "" {
+			return fmt.Errorf("%s: first_name and last_name are required", prefix)
+		}
+		if p.Email == "" {
+			return fmt.Errorf("%s: email is required", prefix)
+		}
 	}
 	if c.Email.Provider == "" {
 		return fmt.Errorf("email: provider is required")

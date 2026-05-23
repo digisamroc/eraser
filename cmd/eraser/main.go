@@ -24,9 +24,10 @@ import (
 )
 
 var (
-	cfgFile    string
-	brokerFile string
-	dryRun     bool
+	cfgFile       string
+	brokerFile    string
+	dryRun        bool
+	profileFilter string
 )
 
 func resolveBrokerPath() string {
@@ -96,13 +97,17 @@ func sendCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "send",
 		Short: "Send removal requests to data brokers",
-		Long:  "Send data removal requests to all configured data brokers.",
+		Long: `Send data removal requests to all configured data brokers.
+
+When multiple profiles are configured, requests are sent for each profile
+sequentially. Use --profile to target a specific person by name.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSend()
 		},
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview emails without sending")
+	cmd.Flags().StringVar(&profileFilter, "profile", "", "Send only for a specific profile (by first name or full name)")
 
 	return cmd
 }
@@ -180,19 +185,39 @@ func runInit() error {
 
 	cfg := &config.Config{}
 
-	// Profile
-	fmt.Println("📋 Personal Information (used in removal requests)")
-	fmt.Println()
+	// Ask about multi-profile
+	fmt.Println("👥 Would you like to set up removal requests for multiple people?")
+	fmt.Println("   (e.g., family members sharing one email sender account)")
+	multiStr := prompt(reader, "Multiple profiles? (y/N): ")
+	multiProfile := strings.ToLower(strings.TrimSpace(multiStr)) == "y"
 
-	cfg.Profile.FirstName = prompt(reader, "First name: ")
-	cfg.Profile.LastName = prompt(reader, "Last name: ")
-	cfg.Profile.Email = prompt(reader, "Email address: ")
-	cfg.Profile.Address = prompt(reader, "Street address (optional): ")
-	cfg.Profile.City = prompt(reader, "City (optional): ")
-	cfg.Profile.State = prompt(reader, "State/Province (optional): ")
-	cfg.Profile.ZipCode = prompt(reader, "ZIP/Postal code (optional): ")
-	cfg.Profile.Country = prompt(reader, "Country (optional): ")
-	cfg.Profile.Phone = prompt(reader, "Phone number (optional): ")
+	if multiProfile {
+		fmt.Println()
+		numStr := prompt(reader, "How many profiles? ")
+		num := 0
+		fmt.Sscanf(numStr, "%d", &num)
+		if num < 1 {
+			num = 1
+		}
+
+		for i := 0; i < num; i++ {
+			fmt.Println()
+			fmt.Printf("📋 Profile %d of %d\n", i+1, num)
+			fmt.Println()
+
+			p := promptProfile(reader)
+			cfg.Profiles = append(cfg.Profiles, p)
+		}
+
+		// Set the first profile as the default single profile too (backward compat)
+		cfg.Profile = cfg.Profiles[0]
+	} else {
+		fmt.Println()
+		fmt.Println("📋 Personal Information (used in removal requests)")
+		fmt.Println()
+
+		cfg.Profile = promptProfile(reader)
+	}
 
 	fmt.Println()
 	fmt.Println("📧 Email Settings")
@@ -237,6 +262,21 @@ func runInit() error {
 	fmt.Println("  4. Run 'eraser send' to send removal requests")
 
 	return nil
+}
+
+// promptProfile interactively collects a single profile's personal info.
+func promptProfile(reader *bufio.Reader) config.Profile {
+	p := config.Profile{}
+	p.FirstName = prompt(reader, "First name: ")
+	p.LastName = prompt(reader, "Last name: ")
+	p.Email = prompt(reader, "Email address: ")
+	p.Address = prompt(reader, "Street address (optional): ")
+	p.City = prompt(reader, "City (optional): ")
+	p.State = prompt(reader, "State/Province (optional): ")
+	p.ZipCode = prompt(reader, "ZIP/Postal code (optional): ")
+	p.Country = prompt(reader, "Country (optional): ")
+	p.Phone = prompt(reader, "Phone number (optional): ")
+	return p
 }
 
 func runSend() error {
@@ -294,77 +334,142 @@ func runSend() error {
 		fmt.Println()
 	}
 
-	fmt.Printf("📤 Processing %d brokers...\n", len(brokers))
-	fmt.Println()
+	profiles := cfg.GetProfiles()
 
-	successCount := 0
-	failCount := 0
+	// Filter to a specific profile if --profile flag is set
+	if profileFilter != "" {
+		filter := strings.ToLower(profileFilter)
+		var matched []config.Profile
+		for _, p := range profiles {
+			if strings.ToLower(p.FirstName) == filter ||
+				strings.ToLower(p.FullName()) == filter ||
+				config.ProfileID(p) == filter {
+				matched = append(matched, p)
+			}
+		}
+		if len(matched) == 0 {
+			fmt.Printf("❌ No profile matching %q found. Available profiles:\n", profileFilter)
+			for _, p := range profiles {
+				fmt.Printf("  - %s (%s)\n", p.FullName(), config.ProfileID(p))
+			}
+			return fmt.Errorf("profile not found: %s", profileFilter)
+		}
+		profiles = matched
+	}
 
-	for i, b := range brokers {
-		fmt.Printf("[%d/%d] %s (%s)\n", i+1, len(brokers), b.Name, b.Email)
+	totalSuccess := 0
+	totalFail := 0
 
-		// Render email
-		emailMsg, err := tmplEngine.Render(cfg.Options.Template, cfg.Profile, b)
-		if err != nil {
-			fmt.Printf("  ❌ Failed to render template: %v\n", err)
-			failCount++
-			continue
+	for pi, profile := range profiles {
+		profileID := config.ProfileID(profile)
+
+		if len(profiles) > 1 {
+			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Printf("👤 Profile %d/%d: %s\n", pi+1, len(profiles), profile.FullName())
+			fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+			fmt.Println()
 		}
 
-		if cfg.Options.DryRun {
-			fmt.Printf("  📧 Would send: %s\n", emailMsg.Subject)
-			fmt.Printf("  📍 To: %s\n", b.Email)
-			successCount++
-		} else {
-			// Send email
-			msg := email.Message{
-				To:      b.Email,
-				From:    cfg.Email.From,
-				Subject: emailMsg.Subject,
-				Body:    emailMsg.Body,
+		fmt.Printf("📤 Processing %d brokers...\n", len(brokers))
+		fmt.Println()
+
+		successCount := 0
+		failCount := 0
+
+		for i, b := range brokers {
+			fmt.Printf("[%d/%d] %s (%s)\n", i+1, len(brokers), b.Name, b.Email)
+
+			// Render email
+			emailMsg, err := tmplEngine.Render(cfg.Options.Template, profile, b)
+			if err != nil {
+				fmt.Printf("  ❌ Failed to render template: %v\n", err)
+				failCount++
+				continue
 			}
 
-			ctx := context.WithValue(context.Background(), "sequence", i)
-			result := sender.Send(ctx, msg)
-
-			// Record in history
-			record := &history.Record{
-				BrokerID:   b.ID,
-				BrokerName: b.Name,
-				Email:      b.Email,
-				Template:   cfg.Options.Template,
-				SentAt:     time.Now(),
-			}
-
-			if result.Success {
-				record.Status = history.StatusSent
-				record.MessageID = result.MessageID
-				fmt.Printf("  ✅ Sent successfully\n")
+			if cfg.Options.DryRun {
+				fmt.Printf("  📧 Would send: %s\n", emailMsg.Subject)
+				fmt.Printf("  📍 To: %s\n", b.Email)
 				successCount++
 			} else {
-				record.Status = history.StatusFailed
-				record.Error = result.Error.Error()
-				fmt.Printf("  ❌ Failed: %v\n", result.Error)
-				failCount++
+				// Send email
+				msg := email.Message{
+					To:      b.Email,
+					From:    cfg.Email.From,
+					Subject: emailMsg.Subject,
+					Body:    emailMsg.Body,
+				}
+
+				ctx := context.WithValue(context.Background(), "sequence", i)
+				result := sender.Send(ctx, msg)
+
+				// Record in history
+				record := &history.Record{
+					ProfileID:  profileID,
+					BrokerID:   b.ID,
+					BrokerName: b.Name,
+					Email:      b.Email,
+					Template:   cfg.Options.Template,
+					SentAt:     time.Now(),
+				}
+
+				if result.Success {
+					record.Status = history.StatusSent
+					record.MessageID = result.MessageID
+					fmt.Printf("  ✅ Sent successfully\n")
+					successCount++
+				} else {
+					record.Status = history.StatusFailed
+					record.Error = result.Error.Error()
+					fmt.Printf("  ❌ Failed: %v\n", result.Error)
+					failCount++
+				}
+
+				if err := store.Add(record); err != nil {
+					fmt.Printf("  ⚠️  Failed to record history: %v\n", err)
+				}
+
+				// Rate limiting
+				if i < len(brokers)-1 {
+					time.Sleep(time.Duration(cfg.Options.RateLimitMs) * time.Millisecond)
+				}
+			}
+		}
+
+		totalSuccess += successCount
+		totalFail += failCount
+
+		if len(profiles) > 1 {
+			fmt.Println()
+			if cfg.Options.DryRun {
+				fmt.Printf("  📊 %s: %d brokers would receive emails\n", profile.FullName(), successCount)
+			} else {
+				fmt.Printf("  📊 %s: %d sent, %d failed\n", profile.FullName(), successCount, failCount)
 			}
 
-			if err := store.Add(record); err != nil {
-				fmt.Printf("  ⚠️  Failed to record history: %v\n", err)
-			}
-
-			// Rate limiting
-			if i < len(brokers)-1 {
-				time.Sleep(time.Duration(cfg.Options.RateLimitMs) * time.Millisecond)
+			// Pause between profiles to respect rate limits
+			if pi < len(profiles)-1 {
+				fmt.Println()
+				fmt.Println("⏳ Pausing 60s between profiles (rate limiting)...")
+				time.Sleep(60 * time.Second)
 			}
 		}
 	}
 
 	fmt.Println()
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	if cfg.Options.DryRun {
-		fmt.Printf("📊 Dry run complete: %d brokers would receive emails\n", successCount)
+	if len(profiles) > 1 {
+		if cfg.Options.DryRun {
+			fmt.Printf("📊 Dry run complete: %d profiles × %d brokers = %d total emails\n", len(profiles), len(brokers), totalSuccess)
+		} else {
+			fmt.Printf("📊 Complete: %d profiles processed, %d sent, %d failed\n", len(profiles), totalSuccess, totalFail)
+		}
 	} else {
-		fmt.Printf("📊 Complete: %d sent, %d failed\n", successCount, failCount)
+		if cfg.Options.DryRun {
+			fmt.Printf("📊 Dry run complete: %d brokers would receive emails\n", totalSuccess)
+		} else {
+			fmt.Printf("📊 Complete: %d sent, %d failed\n", totalSuccess, totalFail)
+		}
 	}
 
 	return nil

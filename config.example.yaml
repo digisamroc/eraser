@@ -1,6 +1,9 @@
 # Eraser Configuration Example
 # Copy this file to ~/.eraser/config.yaml and fill in your details
 
+# ── Single profile (default) ────────────────────────────────
+# Use "profile" for a single person:
+
 profile:
   # Required: Your personal information for removal requests
   first_name: John
@@ -15,6 +18,38 @@ profile:
   country: "USA"
   phone: "+1-555-123-4567"
   date_of_birth: "1990-01-15"  # Format: YYYY-MM-DD
+
+# ── Multiple profiles (family plan) ─────────────────────────
+# Use "profiles" instead of "profile" to send removal requests
+# for multiple people using the same email sender account.
+# When "profiles" is set, "profile" is ignored.
+#
+# profiles:
+#   - first_name: John
+#     last_name: Doe
+#     email: john.doe@example.com
+#     address: "123 Main Street"
+#     city: "San Francisco"
+#     state: "CA"
+#     zip_code: "94102"
+#     country: "USA"
+#     phone: "+1-555-123-4567"
+#     date_of_birth: "1990-01-15"
+#
+#   - first_name: Jane
+#     last_name: Doe
+#     email: jane.doe@example.com
+#     address: "123 Main Street"
+#     city: "San Francisco"
+#     state: "CA"
+#     zip_code: "94102"
+#     country: "USA"
+#     phone: "+1-555-123-4568"
+#     date_of_birth: "1992-06-20"
+#
+# Send for a specific person only:
+#   eraser send --profile "John"
+#   eraser send --profile "john-doe"
 
 email:
   # Email provider: "smtp" or "sendgrid"

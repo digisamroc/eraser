@@ -46,6 +46,7 @@ const (
 
 type Record struct {
 	ID             int64
+	ProfileID      string // Identifies which profile sent this request
 	BrokerID       string
 	BrokerName     string
 	Email          string
@@ -100,14 +101,17 @@ type Store struct {
 func scanRecord(scanner interface{ Scan(...any) error }) (*Record, error) {
 	var r Record
 	var sentAt, createdAt sql.NullTime
-	var messageID, errStr sql.NullString
+	var messageID, errStr, profileID sql.NullString
 
-	err := scanner.Scan(&r.ID, &r.BrokerID, &r.BrokerName, &r.Email, &r.Template,
+	err := scanner.Scan(&r.ID, &r.ProfileID, &r.BrokerID, &r.BrokerName, &r.Email, &r.Template,
 		&r.Status, &messageID, &errStr, &sentAt, &createdAt)
 	if err != nil {
 		return nil, err
 	}
 
+	if profileID.Valid {
+		r.ProfileID = profileID.String
+	}
 	r.MessageID = messageID.String
 	r.Error = errStr.String
 	r.SentAt = sentAt.Time
@@ -137,11 +141,13 @@ func (s *Store) migrate() error {
 	// First, try to add new columns to existing databases
 	// These must run before the index creation below
 	s.db.Exec(`ALTER TABLE removal_requests ADD COLUMN pipeline_status TEXT DEFAULT 'email_sent'`)
+	s.db.Exec(`ALTER TABLE removal_requests ADD COLUMN profile_id TEXT DEFAULT ''`)
 	s.db.Exec(`ALTER TABLE pending_tasks ADD COLUMN opened_at DATETIME`)
 
 	query := `
 	CREATE TABLE IF NOT EXISTS removal_requests (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		profile_id TEXT DEFAULT '',
 		broker_id TEXT NOT NULL,
 		broker_name TEXT NOT NULL,
 		email TEXT NOT NULL,
@@ -158,6 +164,7 @@ func (s *Store) migrate() error {
 	CREATE INDEX IF NOT EXISTS idx_sent_at ON removal_requests(sent_at);
 	CREATE INDEX IF NOT EXISTS idx_status ON removal_requests(status);
 	CREATE INDEX IF NOT EXISTS idx_pipeline_status ON removal_requests(pipeline_status);
+	CREATE INDEX IF NOT EXISTS idx_profile_id ON removal_requests(profile_id);
 
 	-- Broker responses table (stores classified email responses)
 	CREATE TABLE IF NOT EXISTS broker_responses (
@@ -211,11 +218,12 @@ func (s *Store) migrate() error {
 
 func (s *Store) Add(record *Record) error {
 	query := `
-	INSERT INTO removal_requests (broker_id, broker_name, email, template, status, message_id, error, sent_at, created_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO removal_requests (profile_id, broker_id, broker_name, email, template, status, message_id, error, sent_at, created_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := s.db.Exec(query,
+		record.ProfileID,
 		record.BrokerID,
 		record.BrokerName,
 		record.Email,
@@ -241,7 +249,7 @@ func (s *Store) Add(record *Record) error {
 
 func (s *Store) GetLastRequestForBroker(brokerID string) (*Record, error) {
 	query := `
-	SELECT id, broker_id, broker_name, email, template, status, message_id, error, sent_at, created_at
+	SELECT id, profile_id, broker_id, broker_name, email, template, status, message_id, error, sent_at, created_at
 	FROM removal_requests WHERE broker_id = ? ORDER BY sent_at DESC LIMIT 1`
 
 	record, err := scanRecord(s.db.QueryRow(query, brokerID))
@@ -256,7 +264,7 @@ func (s *Store) GetLastRequestForBroker(brokerID string) (*Record, error) {
 
 func (s *Store) GetRecentRequests(limit int) ([]Record, error) {
 	query := `
-	SELECT id, broker_id, broker_name, email, template, status, message_id, error, sent_at, created_at
+	SELECT id, profile_id, broker_id, broker_name, email, template, status, message_id, error, sent_at, created_at
 	FROM removal_requests ORDER BY sent_at DESC LIMIT ?`
 
 	rows, err := s.db.Query(query, limit)
@@ -303,6 +311,36 @@ func (s *Store) GetMonthlyStats() (sent, failed int, err error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// GetLastRequestForBrokerAndProfile returns the most recent request for a
+// specific broker and profile combination. This is used in multi-profile mode
+// to track which brokers have already been contacted for each person.
+func (s *Store) GetLastRequestForBrokerAndProfile(brokerID, profileID string) (*Record, error) {
+	query := `
+	SELECT id, profile_id, broker_id, broker_name, email, template, status, message_id, error, sent_at, created_at
+	FROM removal_requests WHERE broker_id = ? AND profile_id = ? ORDER BY sent_at DESC LIMIT 1`
+
+	record, err := scanRecord(s.db.QueryRow(query, brokerID, profileID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query record: %w", err)
+	}
+	return record, nil
+}
+
+// GetStatsForProfile returns statistics filtered by profile_id.
+func (s *Store) GetStatsForProfile(profileID string) (total, sent, failed int, err error) {
+	query := `SELECT COUNT(*), SUM(CASE WHEN status='sent' THEN 1 ELSE 0 END),
+		SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) FROM removal_requests WHERE profile_id = ?`
+
+	err = s.db.QueryRow(query, profileID).Scan(&total, &sent, &failed)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to get stats for profile: %w", err)
+	}
+	return
+}
 
 type BrokerStatus struct {
 	BrokerID  string

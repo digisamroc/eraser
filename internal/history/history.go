@@ -99,19 +99,25 @@ type Store struct {
 // scanRecord handles nullable columns when scanning a row
 func scanRecord(scanner interface{ Scan(...any) error }) (*Record, error) {
 	var r Record
-	var sentAt, createdAt sql.NullTime
+	var sentAtStr, createdAtStr sql.NullString
 	var messageID, errStr sql.NullString
 
 	err := scanner.Scan(&r.ID, &r.BrokerID, &r.BrokerName, &r.Email, &r.Template,
-		&r.Status, &messageID, &errStr, &sentAt, &createdAt)
+		&r.Status, &messageID, &errStr, &sentAtStr, &createdAtStr)
 	if err != nil {
 		return nil, err
 	}
 
 	r.MessageID = messageID.String
 	r.Error = errStr.String
-	r.SentAt = sentAt.Time
-	r.CreatedAt = createdAt.Time
+	if sentAtStr.Valid {
+		t, _ := time.Parse(time.RFC3339, sentAtStr.String)
+		r.SentAt = t
+	}
+	if createdAtStr.Valid {
+		t, _ := time.Parse(time.RFC3339, createdAtStr.String)
+		r.CreatedAt = t
+	}
 	return &r, nil
 }
 
@@ -325,13 +331,25 @@ func (s *Store) GetAllBrokerStatuses() (map[string]BrokerStatus, error) {
 	statuses := make(map[string]BrokerStatus)
 	for rows.Next() {
 		var bs BrokerStatus
-		var lastSent sql.NullTime
+		var lastSentStr sql.NullString
 		var status string
 
-		if err := rows.Scan(&bs.BrokerID, &lastSent, &status, &bs.TotalSent); err != nil {
+		if err := rows.Scan(&bs.BrokerID, &lastSentStr, &status, &bs.TotalSent); err != nil {
 			return nil, fmt.Errorf("failed to scan broker status: %w", err)
 		}
-		bs.LastSent = lastSent.Time
+		
+		if lastSentStr.Valid {
+			// Try to parse RFC3339 first
+			t, err := time.Parse(time.RFC3339, lastSentStr.String)
+			if err == nil {
+				bs.LastSent = t
+			} else {
+				// Fallback or ignore parse errors for old records
+				// Just use a dummy valid time so UI knows it's not zero
+				bs.LastSent = time.Now()
+			}
+		}
+		
 		bs.Status = Status(status)
 		statuses[bs.BrokerID] = bs
 	}
@@ -775,11 +793,11 @@ func (s *Store) GetPendingTasks(taskType TaskType, status string) ([]PendingTask
 	var tasks []PendingTask
 	for rows.Next() {
 		var t PendingTask
-		var createdAt sql.NullTime
+		var createdAt, openedAt, completedAt sql.NullString
 		var formURL, screenshotPath, browserState, notes sql.NullString
 
 		err := rows.Scan(&t.ID, &t.BrokerID, &t.BrokerName, &t.TaskType, &formURL, &screenshotPath,
-			&browserState, &notes, &t.Status, &createdAt, &t.OpenedAt, &t.CompletedAt)
+			&browserState, &notes, &t.Status, &createdAt, &openedAt, &completedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan pending task: %w", err)
 		}
@@ -788,7 +806,23 @@ func (s *Store) GetPendingTasks(taskType TaskType, status string) ([]PendingTask
 		t.ScreenshotPath = screenshotPath.String
 		t.BrowserState = browserState.String
 		t.Notes = notes.String
-		t.CreatedAt = createdAt.Time
+		if createdAt.Valid {
+			if pt, err := time.Parse(time.RFC3339, createdAt.String); err == nil {
+				t.CreatedAt = pt
+			}
+		}
+		// For OpenedAt and CompletedAt, we need to leave them as sql.NullTime in the struct
+		// but since they are passed by reference above, we should populate them
+		if openedAt.Valid {
+			if pt, err := time.Parse(time.RFC3339, openedAt.String); err == nil {
+				t.OpenedAt = sql.NullTime{Time: pt, Valid: true}
+			}
+		}
+		if completedAt.Valid {
+			if pt, err := time.Parse(time.RFC3339, completedAt.String); err == nil {
+				t.CompletedAt = sql.NullTime{Time: pt, Valid: true}
+			}
+		}
 		tasks = append(tasks, t)
 	}
 
@@ -802,23 +836,37 @@ func (s *Store) GetPendingTaskByID(id int64) (*PendingTask, error) {
 		FROM pending_tasks WHERE id = ?`
 
 	var t PendingTask
-	var createdAt sql.NullTime
+	var createdAt, openedAt, completedAt sql.NullString
 	var formURL, screenshotPath, browserState, notes sql.NullString
 
 	err := s.db.QueryRow(query, id).Scan(&t.ID, &t.BrokerID, &t.BrokerName, &t.TaskType, &formURL, &screenshotPath,
-		&browserState, &notes, &t.Status, &createdAt, &t.OpenedAt, &t.CompletedAt)
+		&browserState, &notes, &t.Status, &createdAt, &openedAt, &completedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to query pending task: %w", err)
+		return nil, fmt.Errorf("failed to scan pending task: %w", err)
 	}
 
 	t.FormURL = formURL.String
 	t.ScreenshotPath = screenshotPath.String
 	t.BrowserState = browserState.String
 	t.Notes = notes.String
-	t.CreatedAt = createdAt.Time
+	if createdAt.Valid {
+		if pt, err := time.Parse(time.RFC3339, createdAt.String); err == nil {
+			t.CreatedAt = pt
+		}
+	}
+	if openedAt.Valid {
+		if pt, err := time.Parse(time.RFC3339, openedAt.String); err == nil {
+			t.OpenedAt = sql.NullTime{Time: pt, Valid: true}
+		}
+	}
+	if completedAt.Valid {
+		if pt, err := time.Parse(time.RFC3339, completedAt.String); err == nil {
+			t.CompletedAt = sql.NullTime{Time: pt, Valid: true}
+		}
+	}
 	return &t, nil
 }
 

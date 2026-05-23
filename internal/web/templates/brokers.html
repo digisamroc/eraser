@@ -6,20 +6,31 @@
             <h1 class="font-display text-3xl font-bold text-primary">Data Brokers</h1>
             <p class="text-secondary mt-1">{{.Total}} brokers in database</p>
         </div>
-        <button
-            id="send-all-btn"
-            class="btn btn-primary"
-            onclick="startSendAll()"
-        >
-            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div class="flex gap-2">
+            <button
+                id="retry-failed-btn"
+                class="btn bg-orange-100 text-orange-700 hover:bg-orange-200 border-0"
+                onclick="startSendAll('failed')"
+            >
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                <span>Retry Failed</span>
+            </button>
+            <button
+                id="send-all-btn"
+                class="btn btn-primary"
+                onclick="startSendAll()"
+            >
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
             </svg>
             <span id="send-all-text">Send to All</span>
             <span id="send-all-spinner" class="hidden">
                 <span class="spinner"></span>
             </span>
-        </button>
-    </div>
+            </button>
+        </div>
 
     <!-- Daily limit info banner -->
     {{if gt .Filtered 250}}
@@ -298,15 +309,15 @@ async function checkForActiveJob() {
     }
 }
 
-async function startSendAll() {
-    const btn = document.getElementById('send-all-btn');
-    const btnText = document.getElementById('send-all-text');
-    const spinner = document.getElementById('send-all-spinner');
-
+async function startSendAll(statusFilter = '') {
     // Disable button and show spinner
-    btn.disabled = true;
-    btnText.textContent = 'Starting...';
-    spinner.classList.remove('hidden');
+    const btn = document.getElementById('send-all-btn');
+    const text = document.getElementById('send-all-text');
+    const spinner = document.getElementById('send-all-spinner');
+    
+    if (btn) btn.disabled = true;
+    if (text) text.classList.add('hidden');
+    if (spinner) spinner.classList.remove('hidden');
 
     // Get filter values
     const search = document.getElementById('broker-search').value;
@@ -317,13 +328,18 @@ async function startSendAll() {
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
 
     try {
+        const params = { search, category, region };
+        if (statusFilter) {
+            params.status = statusFilter;
+        }
+
         const resp = await fetch('/api/send-all', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRF-Token': csrfToken
             },
-            body: new URLSearchParams({ search, category, region })
+            body: new URLSearchParams(params)
         });
 
         const data = await resp.json();

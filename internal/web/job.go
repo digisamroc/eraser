@@ -57,6 +57,50 @@ func (j *Job) Update(sent, failed int, currentBroker string) {
 	}
 }
 
+// Resume restores progress counters from a persisted job state
+func (j *Job) Resume(sent, failed int) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	j.Sent = sent
+	j.Failed = failed
+	if j.Total > 0 {
+		j.Progress = ((sent + failed) * 100) / j.Total
+	}
+}
+
+// SetDailyLimit sets the maximum number of emails to send per day
+func (j *Job) SetDailyLimit(limit int) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.DailyLimit = limit
+}
+
+// PauseForDailyLimit pauses the job after hitting the daily send limit
+func (j *Job) PauseForDailyLimit(sent int, msg string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	j.DaySent = sent
+	j.Status = JobStatusPaused
+	j.Error = msg
+}
+
+// GetStatus returns the job status under lock
+func (j *Job) GetStatus() JobStatus {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.Status
+}
+
+// finishedBefore reports whether the job is no longer running and
+// completed before the given cutoff time
+func (j *Job) finishedBefore(cutoff time.Time) bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.Status != JobStatusRunning && j.CompletedAt.Before(cutoff)
+}
+
 // Complete marks the job as completed
 func (j *Job) Complete() {
 	j.mu.Lock()
@@ -193,7 +237,7 @@ func (jm *JobManager) GetActive() *Job {
 	defer jm.mu.RUnlock()
 
 	for _, job := range jm.jobs {
-		if job.Status == JobStatusRunning {
+		if job.GetStatus() == JobStatusRunning {
 			return job
 		}
 	}
@@ -207,7 +251,7 @@ func (jm *JobManager) Cleanup(maxAge time.Duration) {
 
 	cutoff := time.Now().Add(-maxAge)
 	for id, job := range jm.jobs {
-		if job.Status != JobStatusRunning && job.CompletedAt.Before(cutoff) {
+		if job.finishedBefore(cutoff) {
 			delete(jm.jobs, id)
 		}
 	}

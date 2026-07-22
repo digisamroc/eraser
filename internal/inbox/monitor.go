@@ -429,7 +429,9 @@ func (m *Monitor) WatchForNewEmails(ctx context.Context, callback func(Email)) e
 	for {
 		select {
 		case <-ctx.Done():
+			// Stop IDLE and wait for its goroutine to exit so it doesn't leak
 			close(stop)
+			<-idleDone
 			return ctx.Err()
 		case update := <-updates:
 			switch u := update.(type) {

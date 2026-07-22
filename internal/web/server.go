@@ -357,9 +357,7 @@ func (s *Server) resumePendingJob(state *PersistentJobState) {
 
 	// Create a new job to continue processing
 	job := s.jobManager.Create(state.Total)
-	job.Sent = state.Sent
-	job.Failed = state.Failed
-	job.Progress = ((state.Sent + state.Failed) * 100) / state.Total
+	job.Resume(state.Sent, state.Failed)
 
 	fmt.Printf("Resuming send job: %d brokers remaining...\n", len(toSend))
 
@@ -456,16 +454,19 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 
 		// Content Security Policy - restrict resource loading
-		// 'unsafe-inline' needed for Tailwind CSS and inline scripts (HTMX attributes)
-		// CDN domains allowed for Tailwind, HTMX, and Google Fonts
+		// Tailwind and HTMX are self-hosted from /static/js/, so no CDN
+		// script hosts and no 'unsafe-eval' are needed. 'unsafe-inline'
+		// remains for the inline script blocks and onclick handlers in
+		// templates; removing it requires a nonce-based refactor.
 		csp := "default-src 'self'; " +
-			"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com; " +
+			"script-src 'self' 'unsafe-inline'; " +
 			"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
 			"img-src 'self' data:; " +
 			"font-src 'self' https://fonts.gstatic.com; " +
 			"connect-src 'self'; " +
 			"frame-ancestors 'none'; " +
 			"form-action 'self'; " +
+			"object-src 'none'; " +
 			"base-uri 'self'"
 		w.Header().Set("Content-Security-Policy", csp)
 
@@ -877,7 +878,7 @@ func (s *Server) processSendJob(job *Job, toSend []BrokerWithStatus, sender emai
 	} else if s.config.Email.Provider == "resend" {
 		dailyLimit = DailyLimitResend
 	}
-	job.DailyLimit = dailyLimit
+	job.SetDailyLimit(dailyLimit)
 
 	// Track remaining brokers for persistence
 	remaining := make([]string, len(toSend))
@@ -893,9 +894,7 @@ func (s *Server) processSendJob(job *Job, toSend []BrokerWithStatus, sender emai
 
 		// Check daily limit
 		if sent >= dailyLimit {
-			job.DaySent = sent
-			job.Status = JobStatusPaused
-			job.Error = fmt.Sprintf("Daily limit of %d emails reached. Remaining %d brokers will be sent when you restart tomorrow.", dailyLimit, len(remaining))
+			job.PauseForDailyLimit(sent, fmt.Sprintf("Daily limit of %d emails reached. Remaining %d brokers will be sent when you restart tomorrow.", dailyLimit, len(remaining)))
 			s.saveJobProgress(job, sent, failed, remaining)
 			log.Printf("Job paused: daily limit of %d reached, %d remaining", dailyLimit, len(remaining))
 			return
@@ -994,7 +993,7 @@ func (s *Server) processSendJob(job *Job, toSend []BrokerWithStatus, sender emai
 func (s *Server) saveJobProgress(job *Job, sent, failed int, remaining []string) {
 	state := &PersistentJobState{
 		ID:               job.ID,
-		Status:           job.Status,
+		Status:           job.GetStatus(),
 		Sent:             sent,
 		Failed:           failed,
 		Total:            job.Total,

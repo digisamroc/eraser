@@ -130,6 +130,13 @@ func NewStore(dbPath string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+
+	// The DB file is created with umask-dependent permissions; it holds
+	// personal data, so restrict it to the owner regardless of umask.
+	if err := os.Chmod(dbPath, 0600); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to restrict database permissions: %w", err)
+	}
 	return store, nil
 }
 

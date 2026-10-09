@@ -32,16 +32,16 @@ func sanitizeBroker(b *Broker) {
 }
 
 type Broker struct {
-	ID          string   `yaml:"id"`
-	Name        string   `yaml:"name"`
-	Email       string   `yaml:"email"`
-	Website     string   `yaml:"website,omitempty"`
-	OptOutURL   string   `yaml:"opt_out_url,omitempty"`
-	Region      string   `yaml:"region"` // "us", "eu", "global"
-	Category    string   `yaml:"category,omitempty"` // "people-search", "marketing", "background-check", etc.
-	Notes       string   `yaml:"notes,omitempty"`
-	RequiresID  bool     `yaml:"requires_id,omitempty"` // If they require ID verification
-	Tags        []string `yaml:"tags,omitempty"`
+	ID         string   `yaml:"id"`
+	Name       string   `yaml:"name"`
+	Email      string   `yaml:"email"`
+	Website    string   `yaml:"website,omitempty"`
+	OptOutURL  string   `yaml:"opt_out_url,omitempty"`
+	Region     string   `yaml:"region"`             // "us", "eu", "global"
+	Category   string   `yaml:"category,omitempty"` // "people-search", "marketing", "background-check", etc.
+	Notes      string   `yaml:"notes,omitempty"`
+	RequiresID bool     `yaml:"requires_id,omitempty"` // If they require ID verification
+	Tags       []string `yaml:"tags,omitempty"`
 }
 
 type BrokerDatabase struct {
@@ -101,11 +101,25 @@ func toSet(items []string) map[string]bool {
 	return m
 }
 
+// IsFlagged reports a broker whose address is kept in the database but must
+// not be emailed until a replacement is confirmed. The tag is `flagged`.
+func (b Broker) IsFlagged() bool {
+	for _, tag := range b.Tags {
+		if strings.EqualFold(tag, "flagged") {
+			return true
+		}
+	}
+	return false
+}
+
 func (db *BrokerDatabase) Filter(regions []string, excluded []string) []Broker {
 	regionSet, excludedSet := toSet(regions), toSet(excluded)
 
 	var result []Broker
 	for _, b := range db.Brokers {
+		if b.IsFlagged() {
+			continue
+		}
 		if excludedSet[strings.ToLower(b.ID)] || excludedSet[strings.ToLower(b.Name)] {
 			continue
 		}

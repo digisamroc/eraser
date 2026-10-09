@@ -1,4 +1,7 @@
 brokers:
+# tagged `flagged`: day-1 addresses that bounced, rejected mail, or refused email.
+# They stay in this file until a replacement address is confirmed or the entry is removed.
+# Send paths skip `flagged`. `needs-review` stays sendable; the listed address was not the one that failed.
     - id: spokeo
       name: Spokeo
       email: privacy@spokeo.com
@@ -34,6 +37,8 @@ brokers:
       opt_out_url: https://www.truepeoplesearch.com/removal
       region: us
       category: people-search
+      notes: "Day-1 batch: this address did not succeed. The reply text was not recorded. Kept until it is replaced or removed."
+      tags: [flagged, day-1-unconfirmed]
     - id: fastpeoplesearch
       name: FastPeopleSearch
       email: privacy@fastpeoplesearch.com
@@ -48,6 +53,8 @@ brokers:
       opt_out_url: https://www.usphonebook.com/opt-out
       region: us
       category: people-search
+      notes: "Day-1 batch: this address did not succeed. The reply text was not recorded. Kept until it is replaced or removed."
+      tags: [flagged, day-1-unconfirmed]
     - id: thatsthem
       name: ThatsThem
       email: support@thatsthem.com
@@ -117,6 +124,8 @@ brokers:
       opt_out_url: https://www.advancedbackgroundchecks.com/removal
       region: us
       category: background-check
+      notes: "Day-1 batch: this address did not succeed. The reply text was not recorded. Kept until it is replaced or removed."
+      tags: [flagged, day-1-unconfirmed]
     - id: publicrecords360
       name: PublicRecords360
       email: privacy@publicrecords360.com
@@ -211,6 +220,8 @@ brokers:
       website: https://checkr.com
       region: us
       category: background-check
+      notes: "Day-1 batch: this address did not succeed. The reply text was not recorded. Kept until it is replaced or removed."
+      tags: [flagged, day-1-unconfirmed]
     - id: goodhire
       name: GoodHire
       email: privacy@goodhire.com
@@ -489,6 +500,8 @@ brokers:
       opt_out_url: https://privacyportal.onetrust.com/webform/3d2d5e0c-bd98-46b8-906c-ede68a6f6a80/400f54ed-fcbb-4749-ab5b-32f491c72390
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: inbox is not monitored. Kept until a replacement privacy address is confirmed."
+      tags: [flagged, dead-email]
     - id: alikeaudience
       name: Alikeaudience, Inc.
       email: legal@alikeaudience.com
@@ -502,6 +515,8 @@ brokers:
       website: https://www.executiveenergy.com/
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: domain does not exist. Kept until a replacement privacy address is confirmed."
+      tags: [flagged, dead-email]
     - id: all-good-media
       name: All Good Media LLC
       email: marwan@attribits.com
@@ -564,12 +579,16 @@ brokers:
       opt_out_url: https://www.andrewswharton.com/your-privacy-choices
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: now Stirista, do not use this address. Kept until the Stirista address is confirmed."
+      tags: [flagged, dead-email]
     - id: anexinet
       name: Anexinet Corp.
       email: privacy@anexinet.com
       website: https://www.anexinet.com/
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: message blocked. Kept until a replacement privacy address is confirmed."
+      tags: [flagged, dead-email]
     - id: anne-lewis-strategies
       name: Anne Lewis Strategies, LLC
       email: info@missionwired.com
@@ -591,6 +610,8 @@ brokers:
       opt_out_url: https://www.clearbit.com/ccpa-opt-out
       region: us
       category: marketing
+      notes: "Day-1 batch, email is the wrong channel: opt out on the HubSpot form. Kept until that form URL is recorded."
+      tags: [flagged, email-wrong-channel]
     - id: apollo-interactive
       name: APOLLO INTERACTIVE LLC
       email: requests@apollointeractive.com
@@ -626,6 +647,8 @@ brokers:
       opt_out_url: https://www.arrakis.ai/optout
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: company is closing and asked to be removed. Kept until a replacement is confirmed or the entry is deleted."
+      tags: [flagged, dead-email]
     - id: american-spirit-data-solutions
       name: AMERICAN SPIRIT DATA SOLUTIONS LLC
       email: privacy@aspire-north.com
@@ -666,6 +689,8 @@ brokers:
       website: https://www.atlanticfox.com/
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: no longer a data broker. Kept until the entry is removed or replaced."
+      tags: [flagged, dead-email]
     - id: attom-data-solutions
       name: ATTOM Data Solutions LLC
       email: erik.wind@attomdata.com
@@ -882,6 +907,8 @@ brokers:
       website: https://www.brightcheck.com/
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: address not found. Kept until a replacement privacy address is confirmed."
+      tags: [flagged, dead-email]
     - id: brigthswipe
       name: Brigthswipe Inc
       email: admin@brightswipe.com
@@ -902,6 +929,8 @@ brokers:
       opt_out_url: https://privacyportal.onetrust.com/webform/82a6a736-b3a7-4e87-a2fd-04a39b7d2b19/2f5dc7b8-7698-4623-82d2-b2b969ef901e
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: group does not accept outside mail. Kept until a replacement privacy address is confirmed."
+      tags: [flagged, dead-email]
     - id: buildertrend-solutions
       name: Buildertrend Solutions, Inc.
       email: privacy@buildertrend.com
@@ -950,12 +979,16 @@ brokers:
       opt_out_url: https://www.captifytechnologies.com/data-subject-rights-request/
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: the mailbox owner left Captify. Kept until a replacement privacy address is confirmed."
+      tags: [flagged, dead-email]
     - id: carco-group
       name: CARCO Group, Inc.
       email: compliance@cisive.com
       website: https://www.cisive.com/
       region: us
       category: marketing
+      notes: "Day-1 batch: bberger@cisive.com is no longer monitored. This file lists compliance@cisive.com, which was not that mailbox. Confirm before removing."
+      tags: [needs-review]
     - id: cardlytics
       name: CARDLYTICS Inc
       email: legalnotices@cardlytics.com
@@ -982,6 +1015,8 @@ brokers:
       opt_out_url: https://www.hightouch.com/privacy-choices
       region: us
       category: marketing
+      notes: "Day-1 batch: legal@hightouch.io said to submit at preferences.hightouch.com. This file lists legal@hightouch.com. Confirm before removing."
+      tags: [needs-review]
     - id: catalina-marketing
       name: Catalina Marketing Corporation
       email: privacyteam@catalina.com
@@ -1057,6 +1092,8 @@ brokers:
       opt_out_url: https://www.civisanalytics.com/privacy-policy/#ccpa
       region: us
       category: marketing
+      notes: "Day-1 batch, email is the wrong channel: use their data-subject form. Kept until that form URL is recorded."
+      tags: [flagged, email-wrong-channel]
     - id: civitech
       name: Civitech
       email: jake.london@civitech.io
@@ -1119,6 +1156,8 @@ brokers:
       opt_out_url: https://www.collectivedata.io/opt-out-do-not-sell-request-process/
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: message blocked. Kept until a replacement privacy address is confirmed."
+      tags: [flagged, dead-email]
     - id: command-precision
       name: Command Precision Inc.
       email: info@persistent.id
@@ -1133,6 +1172,8 @@ brokers:
       opt_out_url: https://crexi.bigidprivacy.cloud/consumer/#/o2TCsG9LJ7
       region: us
       category: marketing
+      notes: "Day-1 batch, email is the wrong channel: must use their privacy portal. Kept until that portal URL is recorded."
+      tags: [flagged, email-wrong-channel]
     - id: complementics
       name: Complementics
       email: hello@complementics.com
@@ -1182,6 +1223,8 @@ brokers:
       opt_out_url: https://www.connextdigital.com/opt-out/
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: address not found. Kept until a replacement privacy address is confirmed."
+      tags: [flagged, dead-email]
     - id: consider
       name: Consider, Inc.
       email: ralph@consider.com
@@ -1244,6 +1287,8 @@ brokers:
       website: https://www.crawlbee.com/
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: domain does not exist. Kept until a replacement privacy address is confirmed."
+      tags: [flagged, dead-email]
     - id: credit-bureau-of-council-bluffs
       name: Credit Bureau Of Council Bluffs, Inc
       email: heather@creditinfosystems.com
@@ -1264,6 +1309,8 @@ brokers:
       opt_out_url: https://privacy.crsspxl.com/optout
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: the recipient is no longer there. Kept until a replacement privacy address is confirmed."
+      tags: [flagged, dead-email]
     - id: crosswalk-technologies
       name: Crosswalk Technologies Inc
       email: privacy@crosswalknyc.com
@@ -1325,6 +1372,8 @@ brokers:
       opt_out_url: https://datadelivers.com/unsubscribe/
       region: us
       category: marketing
+      notes: "Day-1 batch sent privacy@datadelivers.com, which could not be forwarded. This file lists supplier@datadelivers.com, which was not the bounced mailbox. Confirm before removing."
+      tags: [needs-review]
     - id: datadojo-cdp
       name: Datadojo CDP Inc.
       email: contact@datadojo.ai
@@ -1443,6 +1492,8 @@ brokers:
       opt_out_url: https://privacy.deeprootanalytics.com/
       region: us
       category: marketing
+      notes: "Day-1 batch, email is the wrong channel: use their privacy center. Kept until that URL is recorded."
+      tags: [flagged, email-wrong-channel]
     - id: deeptrace
       name: Deeptrace Inc.
       email: privacy@coresignal.com
@@ -1582,6 +1633,8 @@ brokers:
       opt_out_url: https://www.winwithoptimal.com/opt-out-of-advertising/
       region: us
       category: marketing
+      notes: "Day-1 batch, email is the wrong channel: use their privacy web form. Kept until that form URL is recorded."
+      tags: [flagged, email-wrong-channel]
     - id: dstillery
       name: Dstillery, Inc
       email: privacy@dstillery.com
@@ -1622,6 +1675,8 @@ brokers:
       opt_out_url: https://optout.networkadvertising.org/
       region: us
       category: marketing
+      notes: "Day-1 batch: floyd.swanton@lightcast.io said deletion requests are not taken by email. This file lists legal@lightcast.io, which was not that mailbox. Confirm before removing."
+      tags: [needs-review]
     - id: edvisors-network
       name: Edvisors Network, Inc.
       email: customerservices@edvisors.com
@@ -1629,6 +1684,8 @@ brokers:
       opt_out_url: https://www.edvisors.com/third-party-opt-out/
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: address not found. Kept until a replacement privacy address is confirmed."
+      tags: [flagged, dead-email]
     - id: effyis
       name: Effyis, Inc.
       email: info@socialgist.com
@@ -1654,6 +1711,8 @@ brokers:
       website: https://www.electroniccommerceatoz.com/
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: domain does not exist. Kept until a replacement privacy address is confirmed."
+      tags: [flagged, dead-email]
     - id: electronic-voice-services
       name: ELECTRONIC VOICE SERVICES Inc
       email: richard@evs7.com
@@ -1674,6 +1733,8 @@ brokers:
       website: https://www.listmatch.com/
       region: us
       category: marketing
+      notes: "Day-1 batch, dead address: address not found. Kept until a replacement privacy address is confirmed."
+      tags: [flagged, dead-email]
     - id: emailmovers
       name: Emailmovers Ltd
       email: compliance@emailmovers.com

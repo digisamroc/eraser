@@ -1,7 +1,17 @@
 brokers:
+# second batch: more hard bounces, form-only opt-outs, and replacement addresses.
 # tagged `flagged`: day-1 addresses that bounced, rejected mail, or refused email.
 # They stay in this file until a replacement address is confirmed or the entry is removed.
 # Send paths skip `flagged`. `needs-review` stays sendable; the listed address was not the one that failed.
+    - id: liftbase
+      name: LiftBase Data
+      email: dataprivacy@liftbasedata.com
+      website: https://www.liftbasedata.com
+      opt_out_url: https://www.liftbasedata.com/your-privacy-choices
+      region: us
+      category: marketing
+      notes: "Not in the original list. Email is not processed. Use https://www.liftbasedata.com/your-privacy-choices."
+      tags: [flagged, email-wrong-channel]
     - id: spokeo
       name: Spokeo
       email: privacy@spokeo.com
@@ -37,8 +47,8 @@ brokers:
       opt_out_url: https://www.truepeoplesearch.com/removal
       region: us
       category: people-search
-      notes: "Day-1 batch: this address did not succeed. The reply text was not recorded. Kept until it is replaced or removed."
-      tags: [flagged, day-1-unconfirmed]
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
+      tags: [flagged, dead-email]
     - id: fastpeoplesearch
       name: FastPeopleSearch
       email: privacy@fastpeoplesearch.com
@@ -53,8 +63,8 @@ brokers:
       opt_out_url: https://www.usphonebook.com/opt-out
       region: us
       category: people-search
-      notes: "Day-1 batch: this address did not succeed. The reply text was not recorded. Kept until it is replaced or removed."
-      tags: [flagged, day-1-unconfirmed]
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
+      tags: [flagged, dead-email]
     - id: thatsthem
       name: ThatsThem
       email: support@thatsthem.com
@@ -83,6 +93,8 @@ brokers:
       opt_out_url: https://www.mylife.com/ccpa/index.pubview
       region: us
       category: people-search
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
+      tags: [flagged, dead-email]
     - id: pipl
       name: Pipl
       email: privacy@pipl.com
@@ -103,6 +115,7 @@ brokers:
       website: https://www.publicrecordsnow.com
       region: us
       category: people-search
+      notes: "Gmail is still retrying delivery. Leave this address on the list."
     - id: familytreenow
       name: FamilyTreeNow
       email: privacy@familytreenow.com
@@ -117,6 +130,7 @@ brokers:
       opt_out_url: https://www.addresses.com/optout.php
       region: us
       category: people-search
+      notes: "Gmail is still retrying delivery. Leave this address on the list."
     - id: advancedbackgroundchecks
       name: AdvancedBackgroundChecks
       email: privacy@advancedbackgroundchecks.com
@@ -124,21 +138,24 @@ brokers:
       opt_out_url: https://www.advancedbackgroundchecks.com/removal
       region: us
       category: background-check
-      notes: "Day-1 batch: this address did not succeed. The reply text was not recorded. Kept until it is replaced or removed."
-      tags: [flagged, day-1-unconfirmed]
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
+      tags: [flagged, dead-email]
     - id: publicrecords360
       name: PublicRecords360
-      email: privacy@publicrecords360.com
+      email: custserv@publicrecords360.com
       website: https://www.publicrecords360.com
       region: us
       category: people-search
+      notes: "privacy@publicrecords360.com is dead. Resend to custserv@publicrecords360.com."
     - id: searchpeoplefree
       name: SearchPeopleFree
       email: privacy@searchpeoplefree.com
       website: https://www.searchpeoplefree.com
-      opt_out_url: https://www.searchpeoplefree.com/optout
+      opt_out_url: https://www.searchpeoplefree.com/opt-out
       region: us
       category: people-search
+      notes: "Email is not processed. Use the opt-out URL on this entry."
+      tags: [flagged, email-wrong-channel]
     - id: acxiom
       name: Acxiom
       email: consumeradvo@acxiom.com
@@ -150,9 +167,11 @@ brokers:
       name: Epsilon Data Management
       email: privacy@epsilon.com
       website: https://www.epsilon.com
-      opt_out_url: https://www.epsilon.com/privacy/consumer-preference-center
+      opt_out_url: https://legal.epsilon.com/dsr/
       region: global
       category: marketing
+      notes: "Lotame was merged into Epsilon. Email is not processed. Use https://legal.epsilon.com/dsr/."
+      tags: [flagged, email-wrong-channel]
     - id: experian-marketing
       name: Experian Marketing Services
       email: privacy@experian.com
@@ -171,8 +190,11 @@ brokers:
       name: TransUnion Marketing
       email: privacy@transunion.com
       website: https://www.transunion.com
+      opt_out_url: https://www.transunion.com/consumer-privacy
       region: global
       category: marketing
+      notes: "Email is not processed. Use the opt-out URL on this entry."
+      tags: [flagged, email-wrong-channel]
     - id: lexisnexis
       name: LexisNexis Risk Solutions
       email: privacy.information.mgr@lexisnexis.com
@@ -184,15 +206,20 @@ brokers:
       name: CoreLogic
       email: privacy@corelogic.com
       website: https://www.corelogic.com
+      opt_out_url: https://www.cotality.com/legal/online-privacy-portal
       region: us
       category: marketing
+      notes: "Email is not processed. Use https://www.cotality.com/legal/online-privacy-portal."
+      tags: [flagged, email-wrong-channel]
     - id: nielsen
       name: Nielsen
       email: privacy.department@nielsen.com
       website: https://www.nielsen.com
-      opt_out_url: https://www.nielsen.com/us/en/legal/privacy-statement/
+      opt_out_url: https://priv-policy.imrworldwide.com/priv/optout/digital-optout.html
       region: global
       category: marketing
+      notes: "Email is not processed. Ad opt-out is https://priv-policy.imrworldwide.com/priv/optout/digital-optout.html. A second OneTrust link in the reply was truncated and was not stored."
+      tags: [flagged, email-wrong-channel]
     - id: liveramp
       name: LiveRamp
       email: privacy@liveramp.com
@@ -204,30 +231,38 @@ brokers:
       name: Tapad (Experian)
       email: privacy@tapad.com
       website: https://www.tapad.com
-      opt_out_url: https://www.tapad.com/privacy-policy
+      opt_out_url: https://crportal.tapad.com/#/
       region: global
       category: marketing
+      notes: "Email is not processed. Deletion goes through https://crportal.tapad.com/#/."
+      tags: [flagged, email-wrong-channel]
     - id: lotame
       name: Lotame
       email: privacy@lotame.com
       website: https://www.lotame.com
-      opt_out_url: https://www.lotame.com/about-lotame/privacy/opt-out/
+      opt_out_url: https://legal.epsilon.com/dsr/
       region: global
       category: marketing
+      notes: "Lotame was merged into Epsilon. Email is not processed. Use https://legal.epsilon.com/dsr/."
+      tags: [flagged, email-wrong-channel]
     - id: checkr
       name: Checkr
       email: privacy@checkr.com
       website: https://checkr.com
+      opt_out_url: https://help.checkr.com
       region: us
       category: background-check
-      notes: "Day-1 batch: this address did not succeed. The reply text was not recorded. Kept until it is replaced or removed."
-      tags: [flagged, day-1-unconfirmed]
+      notes: "privacy@checkr.com bounced, and the old GoodHire address now points at Checkr. Use https://help.checkr.com. Leave listed until removed."
+      tags: [flagged, dead-email]
     - id: goodhire
       name: GoodHire
       email: privacy@goodhire.com
       website: https://www.goodhire.com
+      opt_out_url: https://help.checkr.com
       region: us
       category: background-check
+      notes: "privacy@goodhire.com is dead and now points at Checkr. privacy@checkr.com also bounced. Use https://help.checkr.com."
+      tags: [flagged, dead-email]
     - id: sterling
       name: Sterling
       email: privacy@sterlingcheck.com
@@ -240,6 +275,8 @@ brokers:
       website: https://www.hireright.com
       region: global
       category: background-check
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
+      tags: [flagged, dead-email]
     - id: nuwber
       name: Nuwber
       email: support@nuwber.com
@@ -284,15 +321,18 @@ brokers:
       name: TowerData
       email: privacy@towerdata.com
       website: https://www.towerdata.com
-      opt_out_url: https://www.towerdata.com/company/privacy_policy
+      opt_out_url: https://atdata.com/ccpa-form
       region: us
       category: marketing
+      notes: "Email is not processed. AtData and TowerData use https://atdata.com/ccpa-form."
+      tags: [flagged, email-wrong-channel]
     - id: veromi
       name: Veromi
       email: privacy@veromi.net
       website: https://www.veromi.net
       region: us
       category: people-search
+      notes: "Gmail is still retrying delivery. Leave this address on the list."
     - id: 01advertising
       name: 01Advertising Inc.
       email: privacy@01advertising.com
@@ -311,9 +351,11 @@ brokers:
       name: 33ACROSS Inc
       email: privacy@33across.com
       website: https://www.33across.com/
-      opt_out_url: https://www.33across.com/wp-content/uploads/2020/04/33Across-CCPA-Notice-Collection-Policy_US.pdf
+      opt_out_url: https://www.33across.com/opt-out
       region: us
       category: marketing
+      notes: "Email is not processed. Use the opt-out URL on this entry."
+      tags: [flagged, email-wrong-channel]
     - id: 4c-insights
       name: 4C Insights Inc.
       email: ccpa@mediaocean.com
@@ -321,6 +363,8 @@ brokers:
       opt_out_url: https://www.mediaocean.com/your-privacy-rights
       region: us
       category: marketing
+      notes: "Email is not processed. Use https://www.mediaocean.com/your-privacy-rights."
+      tags: [flagged, email-wrong-channel]
     - id: 4eyesai
       name: 4Eyes.Ai, Inc.
       email: privacy@4-eyes.ai
@@ -328,6 +372,7 @@ brokers:
       opt_out_url: https://www.4-eyes.ai/privacy-policy?cord_section=privacy_options_dns
       region: us
       category: marketing
+      notes: "Gmail is still retrying delivery. Leave this address on the list."
     - id: 4legalleads
       name: 4Legalleads
       email: tapster13@gmail.com
@@ -365,9 +410,11 @@ brokers:
       name: Accurate Append Inc.
       email: support@accurateappend.com
       website: https://www.accurateappend.com/
-      opt_out_url: https://clients.accurateappend.com/Public/OptOut
+      opt_out_url: https://clients.accurateappend.com/public/optout/capture
       region: us
       category: marketing
+      notes: "Email is not enough. Use https://clients.accurateappend.com/public/optout/capture."
+      tags: [flagged, email-wrong-channel]
     - id: ace-agents
       name: ACE Agents Inc.
       email: admin@academixdirect.com
@@ -433,6 +480,7 @@ brokers:
       website: https://www.adrearubin.com/
       region: us
       category: marketing
+      notes: "Gmail is still retrying delivery. Leave this address on the list."
     - id: adsquare-gmbh
       name: Adsquare GmbH
       email: legal@adsquare.com
@@ -473,6 +521,8 @@ brokers:
       opt_out_url: https://affinitysolutions-privacy.my.onetrust.com/webform/a564cfa1-53bf-4c10-bf95-cd907432d7e8/7e4e6bf3-6562-454e-8c73-6a7bd1f4b336
       region: us
       category: marketing
+      notes: "Email is not processed. Use the OneTrust form already stored as the opt-out URL."
+      tags: [flagged, email-wrong-channel]
     - id: agr-marketing-solutions
       name: AGR Marketing Solutions LLC
       email: services@agrmarketingsolutions.com
@@ -500,22 +550,23 @@ brokers:
       opt_out_url: https://privacyportal.onetrust.com/webform/3d2d5e0c-bd98-46b8-906c-ede68a6f6a80/400f54ed-fcbb-4749-ab5b-32f491c72390
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: inbox is not monitored. Kept until a replacement privacy address is confirmed."
-      tags: [flagged, dead-email]
+      notes: "Inbox is not monitored. Use the deletion form already stored as the opt-out URL."
+      tags: [flagged, email-wrong-channel]
     - id: alikeaudience
       name: Alikeaudience, Inc.
-      email: legal@alikeaudience.com
+      email: privacy@alikeaudience.com
       website: https://www.alikeaudience.com/
       opt_out_url: https://privacy-optout.alikeaudience.com/
       region: us
       category: marketing
+      notes: "The previous legal@alikeaudience.com address was the wrong mailbox. Resend to privacy@alikeaudience.com."
     - id: all-global-resources
       name: All Global Resources, LLC
       email: drieke@executiveenergy.com
       website: https://www.executiveenergy.com/
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: domain does not exist. Kept until a replacement privacy address is confirmed."
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
       tags: [flagged, dead-email]
     - id: all-good-media
       name: All Good Media LLC
@@ -572,14 +623,16 @@ brokers:
       opt_out_url: https://privacyportal.onetrust.com/webform/f6a59500-f900-4652-b030-0cd51afe15a5/87ca07e4-e06c-4ad8-9aa6-ccbbaa8750c1
       region: us
       category: marketing
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
+      tags: [flagged, dead-email]
     - id: andrews-wharton
       name: Andrews Wharton, Inc.
       email: privacy@andrewswharton.com
       website: https://www.andrewswharton.com/
-      opt_out_url: https://www.andrewswharton.com/your-privacy-choices
+      opt_out_url: https://unsubscribe.stirista.com/
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: now Stirista, do not use this address. Kept until the Stirista address is confirmed."
+      notes: "Now Stirista. Do not use privacy@andrewswharton.com. Resubmit on https://www.stirista.com. The auto-reply did not include a form URL."
       tags: [flagged, dead-email]
     - id: anexinet
       name: Anexinet Corp.
@@ -587,7 +640,7 @@ brokers:
       website: https://www.anexinet.com/
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: message blocked. Kept until a replacement privacy address is confirmed."
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
       tags: [flagged, dead-email]
     - id: anne-lewis-strategies
       name: Anne Lewis Strategies, LLC
@@ -607,10 +660,10 @@ brokers:
       name: Apihub, Inc.
       email: privacy@clearbit.com
       website: https://www.clearbit.com/
-      opt_out_url: https://www.clearbit.com/ccpa-opt-out
+      opt_out_url: https://preferences.hubspot.com/
       region: us
       category: marketing
-      notes: "Day-1 batch, email is the wrong channel: opt out on the HubSpot form. Kept until that form URL is recorded."
+      notes: "Email is not processed. Opt out at https://www.hubspot.com/hubspot-privacy-preferences and send data requests at https://preferences.hubspot.com/."
       tags: [flagged, email-wrong-channel]
     - id: apollo-interactive
       name: APOLLO INTERACTIVE LLC
@@ -619,6 +672,8 @@ brokers:
       opt_out_url: https://www.apollointeractive.com/data-rights.php
       region: us
       category: marketing
+      notes: "Email is not processed. Use the opt-out URL on this entry."
+      tags: [flagged, email-wrong-channel]
     - id: appscience
       name: Appscience
       email: privacy@appsci.io
@@ -663,6 +718,8 @@ brokers:
       opt_out_url: https://www.issgovernance.com/privacy-legal/ccpa/
       region: us
       category: marketing
+      notes: "Email is not processed. Use https://www.issgovernance.com/privacy-legal/ccpa/."
+      tags: [flagged, email-wrong-channel]
     - id: assurance-iq
       name: Assurance Iq, Inc.
       email: swenson@assurance.com
@@ -680,9 +737,11 @@ brokers:
       name: ATDATA LLC
       email: privacysupport@atdata.com
       website: https://www.atdata.com/
-      opt_out_url: https://instantdata.atdata.com/optout
+      opt_out_url: https://atdata.com/ccpa-form
       region: us
       category: marketing
+      notes: "Email is not processed. AtData and TowerData use https://atdata.com/ccpa-form."
+      tags: [flagged, email-wrong-channel]
     - id: atlantic-fox-technologies
       name: Atlantic Fox Technologies, Inc.
       email: privacy@atlanticfox.com
@@ -726,6 +785,8 @@ brokers:
       opt_out_url: https://www.automotivemastermind.com/do-not-sell-or-share-my-personal-information-request/
       region: us
       category: marketing
+      notes: "Email is not processed. Use the do-not-sell form already stored as the opt-out URL."
+      tags: [flagged, email-wrong-channel]
     - id: autoweb
       name: Autoweb, Inc.
       email: autolegal@autoweb.com
@@ -832,9 +893,11 @@ brokers:
       name: Biscred
       email: rob@biscred.com
       website: https://www.biscred.com/
-      opt_out_url: https://www.biscred.com/do-not-sell-my-information
+      opt_out_url: https://www.biscred.com/privacy-request
       region: us
       category: marketing
+      notes: "Email is not processed. Use the opt-out URL on this entry."
+      tags: [flagged, email-wrong-channel]
     - id: black-pearl-group-limited
       name: Black Pearl Group Limited
       email: privacy@blackpearl.com
@@ -907,7 +970,7 @@ brokers:
       website: https://www.brightcheck.com/
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: address not found. Kept until a replacement privacy address is confirmed."
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
       tags: [flagged, dead-email]
     - id: brigthswipe
       name: Brigthswipe Inc
@@ -915,6 +978,7 @@ brokers:
       website: https://www.brightswipe.com/
       region: us
       category: marketing
+      notes: "Gmail is still retrying delivery. Leave this address on the list."
     - id: brooks-integrated-marketing
       name: Brooks Integrated Marketing, LLC
       email: privacy@brooksim.com
@@ -929,7 +993,7 @@ brokers:
       opt_out_url: https://privacyportal.onetrust.com/webform/82a6a736-b3a7-4e87-a2fd-04a39b7d2b19/2f5dc7b8-7698-4623-82d2-b2b969ef901e
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: group does not accept outside mail. Kept until a replacement privacy address is confirmed."
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
       tags: [flagged, dead-email]
     - id: buildertrend-solutions
       name: Buildertrend Solutions, Inc.
@@ -979,16 +1043,15 @@ brokers:
       opt_out_url: https://www.captifytechnologies.com/data-subject-rights-request/
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: the mailbox owner left Captify. Kept until a replacement privacy address is confirmed."
+      notes: "Lorraine Pinter left Captify and said to email Verve's legal team. The reply did not include an address, so this entry stays flagged."
       tags: [flagged, dead-email]
     - id: carco-group
       name: CARCO Group, Inc.
-      email: compliance@cisive.com
+      email: Mkendrick@cisive.com
       website: https://www.cisive.com/
       region: us
       category: marketing
-      notes: "Day-1 batch: bberger@cisive.com is no longer monitored. This file lists compliance@cisive.com, which was not that mailbox. Confirm before removing."
-      tags: [needs-review]
+      notes: "Bruce Berger's mailbox is dead. Compliance is Mkendrick@cisive.com. Legal is Tjderrington@cisive.com."
     - id: cardlytics
       name: CARDLYTICS Inc
       email: legalnotices@cardlytics.com
@@ -1008,15 +1071,16 @@ brokers:
       website: https://www.carmarketsolutions.com/
       region: us
       category: marketing
+      notes: "Gmail is still retrying delivery. Leave this address on the list."
     - id: carry-technologies
       name: Carry Technologies, Inc
       email: legal@hightouch.com
       website: https://www.hightouch.com/
-      opt_out_url: https://www.hightouch.com/privacy-choices
+      opt_out_url: https://preferences.hightouch.com/
       region: us
       category: marketing
-      notes: "Day-1 batch: legal@hightouch.io said to submit at preferences.hightouch.com. This file lists legal@hightouch.com. Confirm before removing."
-      tags: [needs-review]
+      notes: "Email is not processed. Use https://preferences.hightouch.com/."
+      tags: [flagged, email-wrong-channel]
     - id: catalina-marketing
       name: Catalina Marketing Corporation
       email: privacyteam@catalina.com
@@ -1092,7 +1156,7 @@ brokers:
       opt_out_url: https://www.civisanalytics.com/privacy-policy/#ccpa
       region: us
       category: marketing
-      notes: "Day-1 batch, email is the wrong channel: use their data-subject form. Kept until that form URL is recorded."
+      notes: "Email is not processed. Use the data-subject form linked from their supplemental privacy notice. The link in the reply was truncated, so it was not stored."
       tags: [flagged, email-wrong-channel]
     - id: civitech
       name: Civitech
@@ -1122,6 +1186,7 @@ brokers:
       opt_out_url: https://optout.networkadvertising.org/
       region: us
       category: marketing
+      notes: "ClearCompany only deletes data a person submitted while applying through a customer's career site, and only that employer can delete it. This is not a general opt-out address."
     - id: clearview-ai
       name: Clearview Ai, Inc.
       email: legal@clearview.ai
@@ -1156,7 +1221,7 @@ brokers:
       opt_out_url: https://www.collectivedata.io/opt-out-do-not-sell-request-process/
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: message blocked. Kept until a replacement privacy address is confirmed."
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
       tags: [flagged, dead-email]
     - id: command-precision
       name: Command Precision Inc.
@@ -1172,7 +1237,7 @@ brokers:
       opt_out_url: https://crexi.bigidprivacy.cloud/consumer/#/o2TCsG9LJ7
       region: us
       category: marketing
-      notes: "Day-1 batch, email is the wrong channel: must use their privacy portal. Kept until that portal URL is recorded."
+      notes: "Email is not processed. Use https://crexi.bigidprivacy.cloud/consumer/#/o2TCsG9LJ7."
       tags: [flagged, email-wrong-channel]
     - id: complementics
       name: Complementics
@@ -1209,6 +1274,7 @@ brokers:
       opt_out_url: https://www.calltruth.com/opt_out.php
       region: us
       category: marketing
+      notes: "Gmail is still retrying delivery. Leave this address on the list."
     - id: connected-investors
       name: Connected Investors LLC
       email: support@connectedinvestors.com
@@ -1216,6 +1282,8 @@ brokers:
       opt_out_url: https://firstam.service-now.com/x_farf2_dp_request_ci_opt_out.do?sysparm_id=6d6e7e8edb3e3158665f182813961985
       region: us
       category: marketing
+      notes: "Email is not processed. The email ticket is only a receipt. Use the ServiceNow form already stored as the opt-out URL."
+      tags: [flagged, email-wrong-channel]
     - id: connext-digital
       name: Connext Digital, LLC
       email: rob.fitzgerald@connextdigital.com
@@ -1223,7 +1291,7 @@ brokers:
       opt_out_url: https://www.connextdigital.com/opt-out/
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: address not found. Kept until a replacement privacy address is confirmed."
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
       tags: [flagged, dead-email]
     - id: consider
       name: Consider, Inc.
@@ -1242,6 +1310,7 @@ brokers:
       email: privacy@consumercanvas.net
       region: us
       category: marketing
+      notes: "They said the email is enough. A TrustArc form can speed it up, but the link in the reply was truncated, so it was not stored."
     - id: contactout
       name: Contactout
       email: support@contactout.com
@@ -1287,7 +1356,7 @@ brokers:
       website: https://www.crawlbee.com/
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: domain does not exist. Kept until a replacement privacy address is confirmed."
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
       tags: [flagged, dead-email]
     - id: credit-bureau-of-council-bluffs
       name: Credit Bureau Of Council Bluffs, Inc
@@ -1304,13 +1373,12 @@ brokers:
       category: marketing
     - id: cross-pixel-media
       name: Cross Pixel Media, Inc.
-      email: apearlstein@crosspixel.net
+      email: stephanie.mccabe@knowertech.ca
       website: https://www.crosspixel.net/
       opt_out_url: https://privacy.crsspxl.com/optout
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: the recipient is no longer there. Kept until a replacement privacy address is confirmed."
-      tags: [flagged, dead-email]
+      notes: "Alan Pearlstein is no longer there. Resend to Stephanie McCabe at stephanie.mccabe@knowertech.ca."
     - id: crosswalk-technologies
       name: Crosswalk Technologies Inc
       email: privacy@crosswalknyc.com
@@ -1363,8 +1431,11 @@ brokers:
       name: Data Decisions Group, LLC
       email: privacy@datadecisionsgroup.com
       website: https://www.datadecisionsgroup.com/
+      opt_out_url: https://datadecisionsgroup.com/preferences
       region: us
       category: marketing
+      notes: "Email is not processed. Use the opt-out URL on this entry."
+      tags: [flagged, email-wrong-channel]
     - id: datadelivers
       name: Datadelivers LLC
       email: supplier@datadelivers.com
@@ -1372,8 +1443,8 @@ brokers:
       opt_out_url: https://datadelivers.com/unsubscribe/
       region: us
       category: marketing
-      notes: "Day-1 batch sent privacy@datadelivers.com, which could not be forwarded. This file lists supplier@datadelivers.com, which was not the bounced mailbox. Confirm before removing."
-      tags: [needs-review]
+      notes: "privacy@datadelivers.com could not be forwarded and bounced for good. This file lists supplier@datadelivers.com, which was not confirmed. Do not email either address until a replacement is known."
+      tags: [flagged, dead-email]
     - id: datadojo-cdp
       name: Datadojo CDP Inc.
       email: contact@datadojo.ai
@@ -1492,7 +1563,7 @@ brokers:
       opt_out_url: https://privacy.deeprootanalytics.com/
       region: us
       category: marketing
-      notes: "Day-1 batch, email is the wrong channel: use their privacy center. Kept until that URL is recorded."
+      notes: "Email is not processed. Use https://privacy.deeprootanalytics.com/."
       tags: [flagged, email-wrong-channel]
     - id: deeptrace
       name: Deeptrace Inc.
@@ -1510,15 +1581,19 @@ brokers:
       name: Deloitte Consulting LLP
       email: usprivacyquestions@deloitte.com
       website: https://www.deloitte.com/
-      opt_out_url: https://www.deloitte.com/us/en/footerlinks1/do-not-sell-my-personal-information.html
+      opt_out_url: https://datasubject.deloitte.com/request-form
       region: us
       category: marketing
+      notes: "Email is not processed. Use the opt-out URL on this entry."
+      tags: [flagged, email-wrong-channel]
     - id: demandbase
       name: Demandbase
       email: privacy@demandbase.com
       website: https://www.demandbase.com/
       region: us
       category: marketing
+      notes: "Email is not processed. They asked for a business email, so a Gmail address on the form may be rejected. The privacy-center link was truncated, so it was not stored."
+      tags: [flagged, email-wrong-channel]
     - id: demand-science-group
       name: Demand Science Group, LLC
       email: dataprivacy@demandscience.com
@@ -1554,6 +1629,7 @@ brokers:
       opt_out_url: https://www.collectivedata.io/opt-out-do-not-sell-request-process/
       region: us
       category: marketing
+      notes: "Gmail is still retrying delivery. Leave this address on the list."
     - id: digital-media-solutions
       name: Digital Media Solutions, LLC
       email: tax@dmsgroup.com
@@ -1633,15 +1709,17 @@ brokers:
       opt_out_url: https://www.winwithoptimal.com/opt-out-of-advertising/
       region: us
       category: marketing
-      notes: "Day-1 batch, email is the wrong channel: use their privacy web form. Kept until that form URL is recorded."
+      notes: "Email is not processed. Use their OneTrust privacy form. The link in the reply was truncated, so it was not stored."
       tags: [flagged, email-wrong-channel]
     - id: dstillery
       name: Dstillery, Inc
       email: privacy@dstillery.com
       website: https://www.dstillery.com/
-      opt_out_url: https://www.dstillery.com/
+      opt_out_url: https://dstillery.com/do-not-sell-my-personal-information/
       region: us
       category: marketing
+      notes: "Email is not processed. Opt out at https://dstillery.com/do-not-sell-my-personal-information/. The data-request page is linked from that page."
+      tags: [flagged, email-wrong-channel]
     - id: dt-client-services
       name: DT Client Services, LLC
       email: legal@thedatatrust.com
@@ -1672,11 +1750,11 @@ brokers:
       name: ECONOMIC MODELING LLC
       email: legal@lightcast.io
       website: https://www.lightcast.io/
-      opt_out_url: https://optout.networkadvertising.org/
+      opt_out_url: https://lightcast.io/privacy-request
       region: us
       category: marketing
-      notes: "Day-1 batch: floyd.swanton@lightcast.io said deletion requests are not taken by email. This file lists legal@lightcast.io, which was not that mailbox. Confirm before removing."
-      tags: [needs-review]
+      notes: "Deletion requests are not taken by email. Use https://lightcast.io/privacy-request."
+      tags: [flagged, email-wrong-channel]
     - id: edvisors-network
       name: Edvisors Network, Inc.
       email: customerservices@edvisors.com
@@ -1684,7 +1762,7 @@ brokers:
       opt_out_url: https://www.edvisors.com/third-party-opt-out/
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: address not found. Kept until a replacement privacy address is confirmed."
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
       tags: [flagged, dead-email]
     - id: effyis
       name: Effyis, Inc.
@@ -1696,8 +1774,11 @@ brokers:
       name: Efunds Corporation
       email: chexsystems.compliance@fisglobal.com
       website: https://www.worldpay.com/
+      opt_out_url: https://www.chexsystems.com
       region: us
       category: marketing
+      notes: "ChexSystems will not take this by email. Use https://www.chexsystems.com or call 800-513-7125."
+      tags: [flagged, email-wrong-channel]
     - id: ekata
       name: Ekata, Inc.
       email: privacysupport@ekata.com
@@ -1711,7 +1792,7 @@ brokers:
       website: https://www.electroniccommerceatoz.com/
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: domain does not exist. Kept until a replacement privacy address is confirmed."
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
       tags: [flagged, dead-email]
     - id: electronic-voice-services
       name: ELECTRONIC VOICE SERVICES Inc
@@ -1733,7 +1814,7 @@ brokers:
       website: https://www.listmatch.com/
       region: us
       category: marketing
-      notes: "Day-1 batch, dead address: address not found. Kept until a replacement privacy address is confirmed."
+      notes: "Bounced for good. Leave this entry listed until it is removed. Do not email this address."
       tags: [flagged, dead-email]
     - id: emailmovers
       name: Emailmovers Ltd
@@ -1782,6 +1863,8 @@ brokers:
       opt_out_url: https://legal.epsilon.com/dsr/
       region: us
       category: marketing
+      notes: "Lotame was merged into Epsilon. Email is not processed. Use https://legal.epsilon.com/dsr/."
+      tags: [flagged, email-wrong-channel]
     - id: equimine
       name: Equimine
       email: privacyinquiry@propstream.com
@@ -4516,6 +4599,7 @@ brokers:
       opt_out_url: https://unsubscribe.stirista.com/
       region: us
       category: marketing
+      notes: "Andrews Wharton is now Stirista. Resubmit here. Their auto-reply did not include a separate form URL."
     - id: strata
       name: Strata Company
       email: dataprivacy@gostrata.com

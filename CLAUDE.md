@@ -144,7 +144,7 @@ The broker database now includes 750+ brokers from the Privacy Rights Clearingho
 - `internal/web/server.go` - All routes and handlers, wizard state in cookies, CSRF protection
 - `internal/web/templates/` - HTML templates (layout.html, dashboard.html, brokers.html, history.html, setup/*.html)
 - `internal/web/templates/partials/` - HTMX partial templates (broker-list.html, history-list.html)
-- `internal/web/static/` - Tailwind CSS and HTMX JS
+- `internal/web/static/` - Generated Tailwind CSS (`css/app.css`) and HTMX 1.9.10 JS, embedded in the binary. After changing classes in templates or `server.go`, regenerate the CSS with the command in `internal/web/tailwind.config.js`
 - `internal/email/resend.go` - Resend API email sender
 
 **Email Providers Supported:**

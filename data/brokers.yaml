@@ -317,13 +317,6 @@ brokers:
       opt_out_url: https://www.4-eyes.ai/privacy-policy?cord_section=privacy_options_dns
       region: us
       category: marketing
-    - id: 4legalleads
-      name: 4Legalleads
-      email: tapster13@gmail.com
-      website: https://www.4legalleads.com/
-      opt_out_url: https://www.4legalleads.com/removal
-      region: us
-      category: marketing
     - id: 6sense-insights
       name: 6SENSE INSIGHTS Inc
       email: datasubjectrequests@6sense.com
@@ -856,11 +849,6 @@ brokers:
       name: A DIRECT MARKETING Inc
       email: mark@bookyourdata.com
       website: https://www.bookyourdata.com/
-      region: us
-      category: marketing
-    - id: business-resource-center
-      name: Business Resource Center LLC
-      email: busiresourcecenter@gmail.com
       region: us
       category: marketing
     - id: bridge
@@ -2114,11 +2102,6 @@ brokers:
       opt_out_url: https://www.h1.co/legal/privacy-preferences
       region: us
       category: marketing
-    - id: hamza-online-services
-      name: Hamza Online Services, LLC
-      email: zohandurani@hotmail.com
-      region: us
-      category: marketing
     - id: harmon-research-group
       name: Harmon Research Group, LLC
       email: info@harmonresearch.com
@@ -2357,13 +2340,6 @@ brokers:
       email: privacyteam@infogroup.com
       website: https://www.infogroup.com/
       opt_out_url: https://www.data-axle.com/do-not-sell-my-data/
-      region: us
-      category: marketing
-    - id: infomatics
-      name: INFOMATICS LLC
-      email: llcinfomatics@gmail.com
-      website: https://www.privatereports.com/
-      opt_out_url: https://www.privatereports.com/optOut/name/landing
       region: us
       category: marketing
     - id: infopay
@@ -3228,12 +3204,6 @@ brokers:
       opt_out_url: https://privacyportal.privacypillar.com/dsar/form?orgid=3b24c635-e1a9-4e8c-8e61-9f5fa0024f9c&propid=d3da91fd-2750-4534-9436-f29b3e513fe5&formid=4106bc86-1ddf-461b-b7f6-a5f53b0977b3&status=publish
       region: us
       category: marketing
-    - id: my-renter-checker
-      name: MY RENTER CHECKER LLC
-      email: myrenterchecker@gmail.com
-      website: https://www.myrenterchecker.com/
-      region: us
-      category: marketing
     - id: narvar
       name: Narvar, Inc.
       email: legal@narvar.com
@@ -3750,13 +3720,6 @@ brokers:
       opt_out_url: https://www.prospectordatabase.com/privacy-center
       region: us
       category: marketing
-    - id: proxima-platform
-      name: Proxima Platform
-      email: aleex.de.aybar@outlook.com
-      website: https://www.proximaplatform.com/
-      opt_out_url: https://www.proximaplatform.com/opt-out-portal
-      region: us
-      category: marketing
     - id: pubmatic
       name: PUBMATIC Inc
       email: pubmaticprivacy@pubmatic.com
@@ -4268,13 +4231,6 @@ brokers:
       email: dataprivacy@siteimpact.com
       website: https://www.siteimpact.com/
       opt_out_url: https://www.siteimpact.com/cali_compliance.php
-      region: us
-      category: marketing
-    - id: skipmasher
-      name: Skipmasher, Inc.
-      email: skipsmasher.com@gmail.com
-      website: https://www.skipsmasher.com/
-      opt_out_url: https://www.skipsmasher.com/Consumers/
       region: us
       category: marketing
     - id: skyhook-holding
@@ -4936,11 +4892,6 @@ brokers:
       email: privacy@visualvisitor.com
       website: https://www.visualvisitor.com/
       opt_out_url: https://www.visualvisitor.com/opt-out/
-      region: us
-      category: marketing
-    - id: vror
-      name: Vror LLC
-      email: kiran2868@gmail.com
       region: us
       category: marketing
     - id: vrtcal-markets

@@ -19,15 +19,15 @@ type CaptchaInfo struct {
 
 // CaptchaType constants
 const (
-	CaptchaTypeRecaptchaV2    = "recaptcha_v2"
-	CaptchaTypeRecaptchaV3    = "recaptcha_v3"
-	CaptchaTypeHCaptcha       = "hcaptcha"
-	CaptchaTypeTurnstile      = "cloudflare_turnstile"
-	CaptchaTypeFunCaptcha     = "funcaptcha"
-	CaptchaTypeImageCaptcha   = "image_captcha"
-	CaptchaTypeTextCaptcha    = "text_captcha"
-	CaptchaTypeCloudflare     = "cloudflare_challenge"
-	CaptchaTypeUnknown        = "unknown"
+	CaptchaTypeRecaptchaV2  = "recaptcha_v2"
+	CaptchaTypeRecaptchaV3  = "recaptcha_v3"
+	CaptchaTypeHCaptcha     = "hcaptcha"
+	CaptchaTypeTurnstile    = "cloudflare_turnstile"
+	CaptchaTypeFunCaptcha   = "funcaptcha"
+	CaptchaTypeImageCaptcha = "image_captcha"
+	CaptchaTypeTextCaptcha  = "text_captcha"
+	CaptchaTypeCloudflare   = "cloudflare_challenge"
+	CaptchaTypeUnknown      = "unknown"
 )
 
 // detectCaptcha checks the page for various CAPTCHA types

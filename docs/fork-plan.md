@@ -744,6 +744,19 @@ server; a provider name counts only with no server.
   and `AuthServFor` cases for `gmail`/`outlook` on another server; both
   failed before the fix.
 
+## Follow-up: reclassify keeps stored links (2026-11-19)
+
+Status: done. Found in the last review. "Reclassify" rebuilt each email
+from its stored row and extracted the links again. The row stores an
+HTML-only email's HTML as the body and has no sender domain, so links came
+out with `&amp;` in them (breaking confirmation tokens) and the broker's
+own links were no longer preferred. A row was rewritten when its type
+changed, so `confirm --pending` could click a broken link and mark the
+broker failed. Reclassify now only updates the type, confidence and review
+flag, and keeps the links found when the email was fetched.
+- verify: a web test that reclassifying an HTML-only confirmation keeps
+  its stored link; it failed before the fix.
+
 ---
 
 ## Decisions (2026-11-18)

@@ -1430,6 +1430,7 @@ func runConfirm(confirmURL, brokerID string, pending, validateDomain, dryRun boo
 
 	successCount := 0
 	failCount := 0
+	unclearCount := 0
 
 	for i, link := range links {
 		fmt.Printf("[%d/%d] Processing confirmation link\n", i+1, len(links))
@@ -1469,19 +1470,24 @@ func runConfirm(confirmURL, brokerID string, pending, validateDomain, dryRun boo
 			fmt.Printf("       Final URL: %s\n", truncateURL(result.FinalURL, 60))
 		}
 
+		// Only a clear answer changes the broker's status.
 		status := handler.ExtractConfirmationStatus(result)
-		if result.Success {
+		switch result.Outcome {
+		case browser.ConfirmConfirmed:
 			fmt.Printf("       ✅ %s\n", status)
 			successCount++
 			if link.brokerID != "" {
 				_ = store.UpdatePipelineStatus(link.brokerID, history.PipelineConfirmed)
 			}
-		} else {
-			fmt.Printf("       ⚠️  %s\n", status)
+		case browser.ConfirmFailed:
+			fmt.Printf("       ❌ %s\n", status)
 			failCount++
 			if link.brokerID != "" {
 				_ = store.UpdatePipelineStatus(link.brokerID, history.PipelineFailed)
 			}
+		default:
+			fmt.Printf("       ❓ %s\n", status)
+			unclearCount++
 		}
 
 		fmt.Println()
@@ -1496,7 +1502,7 @@ func runConfirm(confirmURL, brokerID string, pending, validateDomain, dryRun boo
 	if dryRun {
 		fmt.Printf("📊 Dry run complete: %d links would be clicked\n", len(links))
 	} else {
-		fmt.Printf("📊 Complete: %d confirmed, %d failed\n", successCount, failCount)
+		fmt.Printf("📊 Complete: %d confirmed, %d failed, %d unclear\n", successCount, failCount, unclearCount)
 	}
 
 	return nil

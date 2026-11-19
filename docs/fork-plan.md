@@ -646,6 +646,24 @@ form are filled page-wide as before, and can't be submitted.
   (only the removal form is filled and submitted) and with two email-only
   forms (nothing filled or submitted); both failed before the fix.
 
+## Follow-up: honest confirm results (2026-11-19)
+
+Status: done. Found in the final review. `confirm` checked success words
+before failure words, counted "thank you" as success and any 200 with no
+match as success, and matched words inside scripts. An expired link, an
+error page ("Something went wrong. Thank you for your patience") or a plain
+landing page marked the broker `confirmed`. Now the result is confirmed,
+failed or unknown: a non-2xx status fails; otherwise only visible text
+counts (not script, style, noscript or template), success words alone mean
+confirmed, failure words alone mean failed, and both or neither mean
+unknown. Unknown leaves the broker's status alone and tells the user to
+open the link. "Thank you" alone no longer counts; "already" and negated
+forms ("not confirmed") count as failure words, so those pages are unknown.
+- verify: a table test over real-looking pages (error page with "thank
+  you", expired, no signal, mixed, already confirmed, words only in a
+  script or style, error statuses) and a test that a 200 page with no signal
+  is unknown; with the old logic mapped onto the new type, 7 of them failed.
+
 ---
 
 ## Decisions (2026-11-18)

@@ -137,6 +137,23 @@ Status: done.
 
 ## Phase 5: Web UI
 
+Status: split into two PRs.
+- **5A (security): done.** Items 1, 2, 3, 9 and 10.
+  - The bundled `static/css/tailwind.min.css` turned out to be the Tailwind
+    Play CDN *JavaScript* of unknown provenance. It's deleted. CSS is now built
+    with the pinned, checksum-verified Tailwind v3.4.19 standalone CLI
+    (`scripts/build-css.sh`), and CI fails if `app.css` is stale.
+  - Bundled htmx 1.9.10 verified byte-identical to the npm release and loaded
+    with SRI. Google Fonts dropped for the system font stack.
+  - CSP now has no third parties and no `'unsafe-eval'`. `'unsafe-inline'`
+    scripts remain for 27 inline handlers and 11 `<script>` blocks; moving
+    those out (or adding nonces) is a follow-up.
+  - Saving inbox settings used to wipe folder/archive settings and leave the
+    IMAP server and port unset until restart. Fixed.
+- **5B (behavior):** items 5, 6, 7 and 8. Item 4 (local access token) is
+  deferred: the Host check and cross-origin protection cover the remote
+  attacks; it's only needed against other local users or processes.
+
 1. Add a Host header allowlist middleware (`localhost:PORT`, `127.0.0.1:PORT`)
    to block DNS rebinding.
    - verify: a request with `Host: evil.example` gets a 403.

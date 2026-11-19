@@ -311,10 +311,14 @@ Yes, with caveats:
 
 Contributions are welcome. The most helpful things:
 
-- **Adding brokers** — The database at `data/brokers.yaml` can always use more entries
+- **Adding brokers** — Add cited entries to `data/brokers.manual.yaml` (see above); `data/brokers.yaml` is generated
 - **Template improvements** — Better wording for removal requests
 - **Bug fixes** — Found something broken? PRs welcome
 - **Documentation** — Typos, clarifications, better examples
+
+Development notes:
+- Install the hooks with `pre-commit install`. Every commit runs gofmt, vet, tests, golangci-lint and gitleaks.
+- The web UI loads nothing from third parties. If you change Tailwind classes in `internal/web/templates/` or in HTML written by `internal/web/*.go`, rebuild the stylesheet with `scripts/build-css.sh` and commit `internal/web/static/css/app.css`. The script downloads a pinned, checksum-verified Tailwind CLI, and CI fails if the stylesheet is stale.
 
 ---
 

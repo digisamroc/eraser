@@ -268,6 +268,7 @@ If a broker replies that it needs more information to find you, the reply is fla
 - **The broker's own site only.** A page must be https and on the broker's registered domain, or under its registered opt-out URL. This is checked before loading, after any redirect (including script redirects), and again before submitting. Each field is only filled while the page is still on that site, so a page that navigates away mid-fill gets nothing more. `confirm` checks every redirect hop.
 - **Verified emails only.** Links taken from your inbox are only used if the email's sender was verified (see Inbox Monitoring).
 - **Only what you disclose.** Forms get your name and email plus the fields in `options.disclose` and that broker's own `disclose` list. Nothing else is typed in.
+- **One form only.** Fields go into the form that matches your profile best, not a newsletter or search box elsewhere on the page, and only that form is submitted. If two forms match equally well, nothing is filled and you fill it by hand.
 - **No fake success.** The tool only reports "submitted" after clicking the form's own submit button. Without one, it tells you to submit by hand.
 - **Private screenshots.** Screenshots of filled forms are saved owner-only in `~/.eraser/screenshots`.
 

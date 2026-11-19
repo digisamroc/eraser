@@ -89,12 +89,29 @@ const searchFirstPage = `<!doctype html><html><body>
   <button type="submit">Submit request</button>
 </form></body></html>`
 
+// A newsletter sign-up comes before the removal form. Its email box is the
+// first email field on the page, but the removal form is the one to fill.
+const newsletterFirstPage = `<!doctype html><html><body>
+<form method="POST" action="/newsletter"><input type="email" name="nl_email" placeholder="Get our newsletter"><button type="submit">Subscribe</button></form>
+<form method="POST" action="/submitted">
+  <input type="email" name="email"><input name="first_name"><input name="last_name">
+  <button type="submit">Submit request</button>
+</form></body></html>`
+
+// Two forms that each take just an email: nothing says which is the removal
+// form, so neither may be filled.
+const twoLikelyFormsPage = `<!doctype html><html><body>
+<form method="POST" action="/newsletter"><input type="email" name="nl_email"><button type="submit">Subscribe</button></form>
+<form method="POST" action="/submitted"><input type="email" name="email"><button type="submit">Submit request</button></form>
+</body></html>`
+
 type formSite struct {
 	*httptest.Server
 	mu          sync.Mutex
 	submissions []url.Values
 	dangerHits  int
 	searches    int
+	newsletters int
 	leaks       []string // field values another site's page saw
 }
 
@@ -123,6 +140,13 @@ func newFormSite(t *testing.T) *formSite {
 	})
 	mux.HandleFunc("/address", page(addressPage))
 	mux.HandleFunc("/search-first", page(searchFirstPage))
+	mux.HandleFunc("/newsletter-first", page(newsletterFirstPage))
+	mux.HandleFunc("/two-forms", page(twoLikelyFormsPage))
+	mux.HandleFunc("/newsletter", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.newsletters++
+		f.mu.Unlock()
+	})
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.searches++
@@ -424,6 +448,48 @@ func TestSubmitsOnlyTheFormItFilled(t *testing.T) {
 	defer site.mu.Unlock()
 	if site.searches != 0 {
 		t.Error("submitted the pre-filled search form instead of the removal form")
+	}
+}
+
+// Fields are filled in the form that best matches the profile, not wherever
+// the first email box on the page is, and only that form is submitted.
+func TestFillsAndSubmitsTheBestMatchingForm(t *testing.T) {
+	site := newFormSite(t)
+	b := newTestBrowser(t)
+
+	if res, err := b.NavigateAndFill(fillReq(site, "/newsletter-first", true)); err != nil || !res.SubmitAttempted {
+		t.Fatalf("err=%v result=%+v", err, res)
+	}
+	sub := waitForSubmission(t, site)
+	for field, want := range map[string]string{"email": "jane@example.com", "first_name": "Jane", "last_name": "Doe"} {
+		if got := sub.Get(field); got != want {
+			t.Errorf("%s = %q, want %q", field, got, want)
+		}
+	}
+	site.mu.Lock()
+	defer site.mu.Unlock()
+	if site.newsletters != 0 {
+		t.Error("submitted the newsletter form")
+	}
+}
+
+// When two forms match equally well, nothing is filled or submitted.
+func TestAmbiguousFormsAreNotFilled(t *testing.T) {
+	site := newFormSite(t)
+	b := newTestBrowser(t)
+
+	res, err := b.NavigateAndFill(fillReq(site, "/two-forms", true))
+	if !errors.Is(err, ErrAmbiguousForm) {
+		t.Errorf("err = %v, want ErrAmbiguousForm", err)
+	}
+	if res.SubmitAttempted || len(res.FieldsFilled) != 0 {
+		t.Errorf("filled or submitted an ambiguous page: %+v", res)
+	}
+	time.Sleep(500 * time.Millisecond)
+	site.mu.Lock()
+	defer site.mu.Unlock()
+	if len(site.submissions) != 0 || site.newsletters != 0 {
+		t.Errorf("submissions=%d newsletters=%d", len(site.submissions), site.newsletters)
 	}
 }
 

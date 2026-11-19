@@ -83,6 +83,10 @@ func (b Broker) EmailAccepted() bool {
 // and its host must share an organizational domain with the broker's email or
 // website domain, or it must be under the broker's registered opt-out URL
 // (which may live on a shared platform such as OneTrust).
+//
+// An email domain that is a subdomain of another organization than the
+// website's (privacy@acme.zendesk.com) is a help desk's: it covers only that
+// subdomain, not the help desk's other customers.
 func (b Broker) OwnsURL(rawURL string) bool {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
@@ -91,15 +95,14 @@ func (b Broker) OwnsURL(rawURL string) bool {
 	host := strings.ToLower(u.Hostname())
 
 	if org, err := publicsuffix.EffectiveTLDPlusOne(host); err == nil {
-		for _, d := range []string{b.Email[strings.LastIndex(b.Email, "@")+1:], hostOf(b.Website)} {
-			d = strings.ToLower(d)
-			if d == "" || IsFreemailDomain(d) {
-				continue
-			}
+		for _, d := range b.ownedDomains() {
 			if own, err := publicsuffix.EffectiveTLDPlusOne(d); err == nil && own == org {
 				return true
 			}
 		}
+	}
+	if d := b.helpDeskDomain(); d != "" && (host == d || strings.HasSuffix(host, "."+d)) {
+		return true
 	}
 
 	if opt, err := url.Parse(b.OptOutURL); err == nil && b.OptOutURL != "" &&
@@ -111,6 +114,40 @@ func (b Broker) OwnsURL(rawURL string) bool {
 		return p == base || strings.HasPrefix(p, base+"/")
 	}
 	return false
+}
+
+// ownedDomains returns the broker's domains whose whole organization it owns:
+// its website's, and its email's unless that is a help desk subdomain.
+func (b Broker) ownedDomains() []string {
+	var out []string
+	if w := strings.ToLower(hostOf(b.Website)); w != "" && !IsFreemailDomain(w) {
+		out = append(out, w)
+	}
+	if e := b.emailDomain(); e != "" && !IsFreemailDomain(e) && b.helpDeskDomain() == "" {
+		out = append(out, e)
+	}
+	return out
+}
+
+// helpDeskDomain returns the email domain if it is a subdomain of an
+// organization other than the website's (see OwnsURL), else "".
+func (b Broker) helpDeskDomain() string {
+	e := b.emailDomain()
+	if e == "" || IsFreemailDomain(e) {
+		return ""
+	}
+	org, err := publicsuffix.EffectiveTLDPlusOne(e)
+	if err != nil || org == e {
+		return ""
+	}
+	if site, err := publicsuffix.EffectiveTLDPlusOne(strings.ToLower(hostOf(b.Website))); err == nil && site == org {
+		return ""
+	}
+	return e
+}
+
+func (b Broker) emailDomain() string {
+	return strings.ToLower(b.Email[strings.LastIndex(b.Email, "@")+1:])
 }
 
 func hostOf(rawURL string) string {

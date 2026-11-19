@@ -680,6 +680,20 @@ page branch are gone.
   test that the page shows the message instead of "Complete!"; both failed
   before the fix.
 
+## Follow-up: help desk email domains (2026-11-19)
+
+Status: done. Found in the final review. `OwnsURL` accepted any host in the
+organization of the broker's email domain, and one broker
+(`mississippi-tornado-alley`) uses `privacy@mtalley.zendesk.com`, so every
+Zendesk customer's site counted as that broker's for `fill` and `confirm`.
+An email domain that is a subdomain of an organization other than the
+website's now covers only that subdomain. Only that broker changes; its own
+subdomain and registered opt-out URL still pass. Inbox matching was already
+safe (it walks up only to a registered domain).
+- verify: a test that a help-desk email covers its own subdomain but not
+  other customers' (with and without a website), and that a broker's own
+  email subdomain still covers its organization; it failed before the fix.
+
 ---
 
 ## Decisions (2026-11-18)

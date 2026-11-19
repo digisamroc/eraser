@@ -325,6 +325,7 @@ func (s *Server) setupRouter() *chi.Mux {
 	r.Get("/tasks", s.handleTasks)
 	r.Get("/tasks/{taskID}", s.handleTaskDetail)
 	r.Get("/tasks/{taskID}/helper", s.handleTaskHelper)
+	r.Post("/tasks/{taskID}/opened", s.handleTaskOpened)
 	r.Post("/tasks/{taskID}/complete", s.handleTaskComplete)
 	r.Post("/tasks/{taskID}/skip", s.handleTaskSkip)
 	r.Get("/screenshots/{name}", s.handleScreenshot)
@@ -1771,6 +1772,22 @@ func (s *Server) handleTaskSkip(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/tasks/%d/helper", taskID), http.StatusFound)
 }
 
+// handleTaskOpened records that the helper page was opened. The page posts
+// here on load: a GET must not change state, since any site can trigger one.
+func (s *Server) handleTaskOpened(w http.ResponseWriter, r *http.Request) {
+	taskID, err := strconv.ParseInt(chi.URLParam(r, "taskID"), 10, 64)
+	if err != nil || s.historyStore == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := s.historyStore.MarkTaskOpened(taskID); err != nil {
+		log.Printf("Warning: failed to mark task %d opened: %v", taskID, err)
+		http.Error(w, "Failed to record", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleTaskHelper(w http.ResponseWriter, r *http.Request) {
 	taskIDStr := chi.URLParam(r, "taskID")
 	taskID, err := strconv.ParseInt(taskIDStr, 10, 64)
@@ -1789,14 +1806,6 @@ func (s *Server) handleTaskHelper(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Task not found", http.StatusNotFound)
 		return
 	}
-
-	// Mark task as opened (sets opened_at timestamp if not already set)
-	if err := s.historyStore.MarkTaskOpened(taskID); err != nil {
-		log.Printf("Warning: failed to mark task %d opened: %v", taskID, err)
-	}
-
-	// Re-fetch task to get updated opened_at
-	task, _ = s.historyStore.GetPendingTaskByID(taskID)
 
 	// Parse profile data from BrowserState (JSON)
 	profileData := make(map[string]string)

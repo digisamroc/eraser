@@ -3,6 +3,7 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -169,7 +170,8 @@ func (b *Browser) NavigateAndFill(req FillRequest) (*FormResult, error) {
 	time.Sleep(2 * time.Second)
 
 	// HTTP or script redirects may have taken the page elsewhere.
-	if err := b.checkLocation(ctx, req, result); err != nil {
+	origin, err := b.checkLocation(ctx, req, result)
+	if err != nil {
 		return result, err
 	}
 
@@ -197,7 +199,7 @@ func (b *Browser) NavigateAndFill(req FillRequest) (*FormResult, error) {
 
 			// User solved CAPTCHA, wait for page to update and then continue to fill form
 			time.Sleep(2 * time.Second)
-			if err := b.checkLocation(ctx, req, result); err != nil {
+			if origin, err = b.checkLocation(ctx, req, result); err != nil {
 				return result, err
 			}
 		} else {
@@ -207,9 +209,13 @@ func (b *Browser) NavigateAndFill(req FillRequest) (*FormResult, error) {
 	}
 
 	// PHASE 2: Fill form fields (either no blocking CAPTCHA, or user already solved it)
-	fillResult := NewFormFiller(&req.Profile).Fill(ctx)
+	fillResult, err := NewFormFiller(&req.Profile).Fill(ctx, origin)
 	result.FieldsFilled = fillResult.FilledFields
 	result.FieldsMissing = fillResult.MissingFields
+	if err != nil {
+		result.ErrorMessage = err.Error()
+		return result, err
+	}
 
 	// Small delay after filling for any dynamic updates
 	time.Sleep(1 * time.Second)
@@ -237,10 +243,10 @@ func (b *Browser) NavigateAndFill(req FillRequest) (*FormResult, error) {
 			}
 
 			if autoSubmit {
-				if err := b.checkLocation(ctx, req, result); err != nil {
+				if origin, err = b.checkLocation(ctx, req, result); err != nil {
 					return result, err
 				}
-				b.submitAndRecord(ctx, result, brokerID)
+				b.submitAndRecord(ctx, result, brokerID, origin)
 			}
 			return result, nil
 		}
@@ -258,31 +264,47 @@ func (b *Browser) NavigateAndFill(req FillRequest) (*FormResult, error) {
 
 	result.Success = len(result.FieldsFilled) > 0
 	if autoSubmit && result.Success {
-		if err := b.checkLocation(ctx, req, result); err != nil {
+		if origin, err = b.checkLocation(ctx, req, result); err != nil {
 			return result, err
 		}
-		b.submitAndRecord(ctx, result, brokerID)
+		b.submitAndRecord(ctx, result, brokerID, origin)
 	}
 	return result, nil
 }
 
-// checkLocation fails if the page's current URL isn't allowed.
-func (b *Browser) checkLocation(ctx context.Context, req FillRequest, result *FormResult) error {
+// checkLocation fails if the page's current URL isn't allowed. Otherwise it
+// returns the page's origin, which filling and submitting are pinned to.
+func (b *Browser) checkLocation(ctx context.Context, req FillRequest, result *FormResult) (string, error) {
 	loc, err := chromedp.Run(ctx, chromedp.Location())
 	if err != nil {
 		result.ErrorMessage = fmt.Sprintf("could not read page location: %v", err)
-		return err
+		return "", err
 	}
-	if u, err := url.Parse(loc); err != nil || !req.Allowed(u) {
+	u, err := url.Parse(loc)
+	if err != nil || !req.Allowed(u) {
 		result.ErrorMessage = fmt.Sprintf("%v: %s", ErrLeftAllowedDomain, loc)
-		return fmt.Errorf("%w: %s", ErrLeftAllowedDomain, loc)
+		return "", fmt.Errorf("%w: %s", ErrLeftAllowedDomain, loc)
 	}
-	return nil
+	return pageOrigin(u), nil
+}
+
+// pageOrigin returns u's origin as the page's location.origin reports it:
+// scheme://host, with the port only when it isn't the scheme's default.
+func pageOrigin(u *url.URL) string {
+	host, port := strings.ToLower(u.Hostname()), u.Port()
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	defaultPort := map[string]string{"https": "443", "http": "80"}[u.Scheme]
+	if port != "" && port != defaultPort {
+		host += ":" + port
+	}
+	return u.Scheme + "://" + host
 }
 
 // submitAndRecord clicks the form's submit control and records the outcome.
-func (b *Browser) submitAndRecord(ctx context.Context, result *FormResult, brokerID string) {
-	if err := b.submitForm(ctx); err != nil {
+func (b *Browser) submitAndRecord(ctx context.Context, result *FormResult, brokerID, origin string) {
+	if err := b.submitForm(ctx, origin); err != nil {
 		result.ErrorMessage = fmt.Sprintf("submit failed: %v", err)
 		return
 	}
@@ -295,18 +317,17 @@ func (b *Browser) submitAndRecord(ctx context.Context, result *FormResult, broke
 	}
 }
 
-// markSubmitJS marks the submit control of a form that contains filled
-// fields. Only controls inside such a form count, so a page's unrelated
-// buttons ("Delete my account", "Request a demo") are never clicked. A
+// markSubmitJS marks the submit control of a form containing fields we
+// filled (marked by fillFieldJS), only while the page is still on origin.
+// Only controls inside such a form count, so a page's unrelated buttons
+// ("Delete my account", a pre-filled search box) are never clicked. A
 // <button> without a type submits its form; other buttons need submit-like
 // text. Returns false when there is no such control.
-const markSubmitJS = `(function() {
+const markSubmitJS = `(function(origin) {
+	if (location.origin !== origin) return false;
 	var words = /(submit|send|remove|delete|opt[\s-]?out|request|continue)/i;
 	var forms = Array.from(document.forms).filter(function(f) {
-		return Array.from(f.elements).some(function(e) {
-			return (e.tagName === 'INPUT' || e.tagName === 'TEXTAREA') &&
-				!/^(hidden|submit|button|reset|checkbox|radio)$/i.test(e.type) && e.value;
-		});
+		return f.querySelector('[data-eraser-filled]') !== null;
 	});
 	for (var i = 0; i < forms.length; i++) {
 		var controls = forms[i].querySelectorAll('button, input[type="submit"], [role="button"]');
@@ -324,19 +345,23 @@ const markSubmitJS = `(function() {
 		}
 	}
 	return false;
-})()`
+})`
 
-// submitForm clicks the form's submit control. It never falls back to
+// submitForm clicks the filled form's submit control. It never falls back to
 // pressing Enter, because that can't confirm anything was submitted.
-func (b *Browser) submitForm(ctx context.Context) error {
-	found, err := chromedp.Run(ctx, chromedp.Evaluate[bool](markSubmitJS))
+func (b *Browser) submitForm(ctx context.Context, origin string) error {
+	arg, err := json.Marshal(origin)
+	if err != nil {
+		return fmt.Errorf("could not search for a submit button: %w", err)
+	}
+	found, err := chromedp.Run(ctx, chromedp.Evaluate[bool](markSubmitJS+"("+string(arg)+")"))
 	if err != nil {
 		return fmt.Errorf("could not search for a submit button: %w", err)
 	}
 	if !found {
 		return ErrNoSubmitButton
 	}
-	if _, err := chromedp.Run(ctx, chromedp.Click(`[data-eraser-submit="1"]`, chromedp.NodeVisible)); err != nil {
+	if _, err := chromedp.Run(ctx, chromedp.Click(chromedp.CSS(`[data-eraser-submit="1"]`), chromedp.NodeVisible)); err != nil {
 		return fmt.Errorf("could not click the submit button: %w", err)
 	}
 	return nil

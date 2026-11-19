@@ -509,6 +509,23 @@ Status: done. Items 1 and 2, plus three bugs found while testing:
 
 ### 9E: Browser form filling
 
+Status: done. Items 1–3. Notes:
+- Item 2 was not low priority after all: with a page that navigates on the
+  first keystroke, the old filler typed first name, last name and phone into
+  the other site's page, which saw every keystroke.
+- Fields are now filled by one in-page script each (origin check, pick the
+  first usable unfilled field, set the value, fire input/change, mark it),
+  instead of a JS existence check followed by CDP typing. That also fixed
+  the old filler appending to a field instead of replacing its value.
+- Found while testing: submit considered any form with a value in it, so a
+  pre-filled site search form before the removal form was submitted
+  instead. Submit now only considers forms containing fields Eraser filled.
+- verify: real-Chrome tests for the email/address overlap, a page that
+  navigates mid-fill (no leak, error returned), and a pre-filled search
+  form first; a web test that the helper GET doesn't mark the task opened
+  and only a same-origin POST does. All failed before the fix; reverting each
+  browser fix makes its test fail.
+
 1. **A later field can overwrite an earlier one.** The filler doesn't track
    filled elements. With `street_address` disclosed, the address selectors
    (`input[placeholder*='address' i]`, `input[name*='address']`) match a

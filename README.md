@@ -265,7 +265,7 @@ If a broker replies that it needs more information to find you, the reply is fla
 
 `eraser fill` opens broker opt-out forms in headless Chrome and fills them in. `eraser confirm` clicks confirmation links. Safeguards:
 
-- **The broker's own site only.** A page must be https and on the broker's registered domain, or under its registered opt-out URL. This is checked before loading, after any redirect (including script redirects), and again before submitting. `confirm` checks every redirect hop.
+- **The broker's own site only.** A page must be https and on the broker's registered domain, or under its registered opt-out URL. This is checked before loading, after any redirect (including script redirects), and again before submitting. Each field is only filled while the page is still on that site, so a page that navigates away mid-fill gets nothing more. `confirm` checks every redirect hop.
 - **Verified emails only.** Links taken from your inbox are only used if the email's sender was verified (see Inbox Monitoring).
 - **Only what you disclose.** Forms get your name and email plus the fields in `options.disclose` and that broker's own `disclose` list. Nothing else is typed in.
 - **No fake success.** The tool only reports "submitted" after clicking the form's own submit button. Without one, it tells you to submit by hand.

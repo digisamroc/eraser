@@ -69,12 +69,15 @@ Each of these closes a real bug or leak. Tests cover them.
 - **fill/confirm:** pages must pass `broker.OwnsURL` (https, broker's
   organizational domain or under its registered opt-out URL). `fill` checks
   before navigating, after load, after CAPTCHA waits and before submitting.
-  `confirm` checks every redirect hop. Only click a submit control inside the
-  filled form; never report a submit that didn't happen.
+  `confirm` checks every redirect hop. Each field is filled by one in-page
+  script that first checks the page is still on the checked origin, skips
+  fields already filled (`data-eraser-filled`) and marks the one it fills.
+  Only click a submit control inside a form with fields we filled; never
+  report a submit that didn't happen.
 - **Web UI:** listens on 127.0.0.1; Host header must be `localhost:PORT` or
   `127.0.0.1:PORT` (DNS rebinding); `http.CrossOriginProtection` guards
-  state-changing requests; never render stored passwords; no third-party
-  assets (the CSP forbids them).
+  state-changing requests, so GET handlers must never change state; never
+  render stored passwords; no third-party assets (the CSP forbids them).
 - **Files:** config and `history.db` 0600 (config saved via temp file and
   rename; the database file is created 0600 before SQLite opens it);
   `~/.eraser` tightened to 0700 by `config.PrepareDir`; screenshots 0700/0600.

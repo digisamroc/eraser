@@ -2,8 +2,9 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/chromedp/chromedp"
 
@@ -35,27 +36,110 @@ func NewFormFiller(profile *config.Profile) *FormFiller {
 	return &FormFiller{profile: profile}
 }
 
-// Fill detects and fills form fields
-func (f *FormFiller) Fill(ctx context.Context) *FillResult {
+// ErrPageChanged means the page navigated while the form was being filled,
+// so filling stopped.
+var ErrPageChanged = errors.New("the page navigated while it was being filled; filling stopped")
+
+// Fill fills the form fields the profile has values for. origin is the page
+// origin (scheme://host[:port]) that passed the caller's URL check: each
+// field is filled only while the page is still there, and filling stops with
+// ErrPageChanged once it isn't.
+func (f *FormFiller) Fill(ctx context.Context, origin string) (*FillResult, error) {
 	result := &FillResult{}
-
-	// Get all field mappings based on profile
-	mappings := f.getFieldMappings()
-
-	for _, mapping := range mappings {
+	for _, mapping := range f.getFieldMappings() {
 		if mapping.ProfileValue == "" {
 			result.MissingFields = append(result.MissingFields, mapping.FieldType)
 			continue
 		}
-
-		filled := f.tryFillField(ctx, mapping)
-		if filled {
+		js, err := fillCall(origin, mapping)
+		if err != nil {
+			return result, err
+		}
+		status, err := chromedp.Run(ctx, chromedp.Evaluate[string](js))
+		if err != nil {
+			// e.g. the page is navigating; the next field's origin check decides.
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", mapping.FieldType, err))
+			continue
+		}
+		switch status {
+		case "filled":
 			result.FilledFields = append(result.FilledFields, mapping.FieldType)
+		case "moved":
+			return result, ErrPageChanged
 		}
 	}
-
-	return result
+	return result, nil
 }
+
+// fillCall builds the fillFieldJS call for one mapping. JSON-encoded values
+// are valid JavaScript literals.
+func fillCall(origin string, m FieldMapping) (string, error) {
+	args, err := json.Marshal([]any{origin, m.Selectors, m.Patterns, m.ProfileValue})
+	if err != nil {
+		return "", fmt.Errorf("encoding %s: %w", m.FieldType, err)
+	}
+	return fillFieldJS + ".apply(null, " + string(args) + ")", nil
+}
+
+// fillFieldJS fills one field and returns "filled", "none" (no usable field),
+// or "moved" (the page is no longer on origin). It runs as one script, so the
+// page can't navigate between the origin check and the fill.
+//
+// The field is the first visible, editable one not already filled that
+// matches a selector (in order), or else whose name, id, placeholder or label
+// contains a pattern. Filled fields are marked, so a later mapping can't
+// overwrite them (an address selector also matches "email_address"). The
+// value is set directly and input/change events fired, as typing would.
+const fillFieldJS = `(function(origin, selectors, patterns, value) {
+	if (location.origin !== origin) return "moved";
+	function usable(el) {
+		return el.offsetParent !== null && !el.disabled && !el.readOnly &&
+			!el.hasAttribute('data-eraser-filled') &&
+			!/^(hidden|submit|button|reset|checkbox|radio|file|image)$/i.test(el.type || '');
+	}
+	var target = null;
+	for (var i = 0; i < selectors.length && !target; i++) {
+		var els = document.querySelectorAll(selectors[i]);
+		for (var j = 0; j < els.length; j++) {
+			if (usable(els[j])) { target = els[j]; break; }
+		}
+	}
+	if (!target) {
+		var fields = document.querySelectorAll('input, select, textarea');
+		search: for (var k = 0; k < fields.length; k++) {
+			var el = fields[k];
+			if (!usable(el)) continue;
+			var label = '';
+			if (el.id) {
+				var l = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+				if (l) label = l.textContent;
+			}
+			var text = [el.name, el.id, el.placeholder, label].join(' ').toLowerCase();
+			for (var p = 0; p < patterns.length; p++) {
+				if (text.indexOf(patterns[p]) !== -1) { target = el; break search; }
+			}
+		}
+	}
+	if (!target) return "none";
+
+	if (target.tagName === 'SELECT') {
+		var want = value.trim().toLowerCase(), option = null;
+		for (var o = 0; o < target.options.length; o++) {
+			var opt = target.options[o];
+			if (opt.value.toLowerCase() === want || opt.text.trim().toLowerCase() === want) { option = opt; break; }
+		}
+		if (!option) return "none";
+		target.value = option.value;
+	} else {
+		var proto = target.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+		Object.getOwnPropertyDescriptor(proto, 'value').set.call(target, value);
+		if (target.value === '') return "none"; // e.g. a date field rejecting the format
+	}
+	target.setAttribute('data-eraser-filled', '1');
+	target.dispatchEvent(new Event('input', {bubbles: true}));
+	target.dispatchEvent(new Event('change', {bubbles: true}));
+	return "filled";
+})`
 
 // getFieldMappings returns mappings for all profile fields
 func (f *FormFiller) getFieldMappings() []FieldMapping {
@@ -228,107 +312,4 @@ func (f *FormFiller) getFieldMappings() []FieldMapping {
 			Patterns: []string{"dob", "birth", "bday"},
 		},
 	}
-}
-
-// tryFillField attempts to fill a field using multiple strategies
-func (f *FormFiller) tryFillField(ctx context.Context, mapping FieldMapping) bool {
-	// Strategy 1: Try exact selectors
-	for _, selector := range mapping.Selectors {
-		if f.fillSelector(ctx, selector, mapping.ProfileValue) {
-			return true
-		}
-	}
-
-	// Strategy 2: Try pattern matching on all input fields
-	if f.fillByPattern(ctx, mapping) {
-		return true
-	}
-
-	return false
-}
-
-// fillSelector attempts to fill a specific CSS selector
-func (f *FormFiller) fillSelector(ctx context.Context, selector string, value string) bool {
-	// Check if element exists and is visible
-	exists, err := chromedp.Run(ctx, chromedp.Evaluate[bool](
-		fmt.Sprintf(`(function() {
-			var el = document.querySelector("%s");
-			return el !== null && el.offsetParent !== null;
-		})()`, escapeSelector(selector)),
-	))
-	if err != nil || !exists {
-		return false
-	}
-
-	// Clear existing value and fill
-	return chromedp.Do(ctx,
-		chromedp.Clear(selector),
-		chromedp.SendKeys(selector, value),
-	) == nil
-}
-
-// fillByPattern searches for fields matching patterns
-func (f *FormFiller) fillByPattern(ctx context.Context, mapping FieldMapping) bool {
-	// Build JavaScript to find matching fields
-	patternsJS := "["
-	for i, p := range mapping.Patterns {
-		if i > 0 {
-			patternsJS += ","
-		}
-		patternsJS += fmt.Sprintf(`"%s"`, p)
-	}
-	patternsJS += "]"
-
-	// JavaScript to find field by pattern
-	js := fmt.Sprintf(`(function() {
-		var patterns = %s;
-		var inputs = document.querySelectorAll('input, select, textarea');
-		for (var i = 0; i < inputs.length; i++) {
-			var el = inputs[i];
-			var name = (el.name || '').toLowerCase();
-			var id = (el.id || '').toLowerCase();
-			var placeholder = (el.placeholder || '').toLowerCase();
-			var label = '';
-
-			// Check for associated label
-			if (el.id) {
-				var labelEl = document.querySelector('label[for="' + el.id + '"]');
-				if (labelEl) label = labelEl.textContent.toLowerCase();
-			}
-
-			for (var j = 0; j < patterns.length; j++) {
-				var p = patterns[j];
-				if (name.includes(p) || id.includes(p) || placeholder.includes(p) || label.includes(p)) {
-					if (el.offsetParent !== null) { // is visible
-						return {found: true, selector: el.tagName.toLowerCase() + (el.id ? '#' + el.id : (el.name ? '[name="' + el.name + '"]' : ''))};
-					}
-				}
-			}
-		}
-		return {found: false};
-	})()`, patternsJS)
-
-	result, err := chromedp.Run(ctx, chromedp.Evaluate[map[string]interface{}](js))
-	if err != nil {
-		return false
-	}
-
-	found, ok := result["found"].(bool)
-	if !ok || !found {
-		return false
-	}
-
-	selector, ok := result["selector"].(string)
-	if !ok || selector == "" {
-		return false
-	}
-
-	return f.fillSelector(ctx, selector, mapping.ProfileValue)
-}
-
-// escapeSelector escapes special characters in CSS selectors for JS strings
-func escapeSelector(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	return s
 }

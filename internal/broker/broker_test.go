@@ -37,6 +37,8 @@ func TestBrokerValidate(t *testing.T) {
 		{"unknown region", func(b *Broker) { b.Region = "mars" }, "region"},
 		{"unknown category", func(b *Broker) { b.Category = "spies" }, "category"},
 		{"empty category ok", func(b *Broker) { b.Category = "" }, ""},
+		{"valid disclose", func(b *Broker) { b.Disclose = []string{"date_of_birth"} }, ""},
+		{"invalid disclose", func(b *Broker) { b.Disclose = []string{"ssn"} }, "disclose"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

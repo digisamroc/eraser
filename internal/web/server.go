@@ -717,18 +717,25 @@ func (s *Server) handleAPISendOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	disclose, err := s.config.Options.Disclosure()
+	if err != nil {
+		_, _ = fmt.Fprintf(w, `<span class="text-red-600">Config error: %s</span>`, template.HTMLEscapeString(err.Error()))
+		return
+	}
+
 	// Generate email content using template engine
-	rendered, err := s.tmplEngine.Render("generic", s.config.Profile, *br)
+	rendered, err := s.tmplEngine.Render("generic", s.config.Profile, disclose, *br)
 	if err != nil {
 		w.Write([]byte(fmt.Sprintf(`<span class="text-red-600">Template error: %s</span>`, template.HTMLEscapeString(err.Error()))))
 		return
 	}
 
 	msg := email.Message{
-		To:      br.Email,
-		From:    s.config.Email.From,
-		Subject: rendered.Subject,
-		Body:    rendered.Body,
+		To:       br.Email,
+		From:     s.config.Email.From,
+		FromName: s.config.Profile.FullName(),
+		Subject:  rendered.Subject,
+		Body:     rendered.Body,
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -793,6 +800,11 @@ func (s *Server) handleAPISendAll(w http.ResponseWriter, r *http.Request) {
 	if s.config == nil || s.config.Email.Provider == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Email not configured. Please configure email settings first."})
+		return
+	}
+	if _, err := s.config.Options.Disclosure(); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -886,6 +898,12 @@ func (s *Server) processSendJob(job *Job, toSend []BrokerWithStatus, sender emai
 	}
 	job.DailyLimit = dailyLimit
 
+	disclose, err := s.config.Options.Disclosure()
+	if err != nil {
+		job.StopWithError("config", err.Error())
+		return
+	}
+
 	// Track remaining brokers for persistence
 	remaining := make([]string, len(toSend))
 	for i, b := range toSend {
@@ -912,7 +930,7 @@ func (s *Server) processSendJob(job *Job, toSend []BrokerWithStatus, sender emai
 		job.Update(sent, failed, b.Name)
 
 		// Generate email
-		rendered, err := s.tmplEngine.Render("generic", s.config.Profile, b.Broker)
+		rendered, err := s.tmplEngine.Render("generic", s.config.Profile, disclose, b.Broker)
 		if err != nil {
 			failed++
 			job.Update(sent, failed, b.Name)
@@ -923,10 +941,11 @@ func (s *Server) processSendJob(job *Job, toSend []BrokerWithStatus, sender emai
 		}
 
 		msg := email.Message{
-			To:      b.Email,
-			From:    s.config.Email.From,
-			Subject: rendered.Subject,
-			Body:    rendered.Body,
+			To:       b.Email,
+			From:     s.config.Email.From,
+			FromName: s.config.Profile.FullName(),
+			Subject:  rendered.Subject,
+			Body:     rendered.Body,
 		}
 
 		// Use job's context with timeout for cancellation support
@@ -1387,9 +1406,10 @@ func (s *Server) handleSetupTestSend(w http.ResponseWriter, r *http.Request) {
 
 	// Send test email
 	testMsg := email.Message{
-		To:      session.Profile.Email,
-		From:    session.Email.From,
-		Subject: "Eraser Test Email",
+		To:       session.Profile.Email,
+		From:     session.Email.From,
+		FromName: session.Profile.FullName(),
+		Subject:  "Eraser Test Email",
 		Body: fmt.Sprintf(`Hello %s,
 
 This is a test email from Eraser to verify your email configuration is working correctly.

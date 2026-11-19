@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/eraser-privacy/eraser/internal/broker"
+	"github.com/eraser-privacy/eraser/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -114,6 +115,7 @@ type Override struct {
 	Category  string   `yaml:"category,omitempty"`
 	OptOutURL string   `yaml:"opt_out_url,omitempty"`
 	Tags      []string `yaml:"tags,omitempty"`
+	Disclose  []string `yaml:"disclose,omitempty"` // extra profile fields this broker needs
 	Notes     string   `yaml:"notes,omitempty"`
 	SourceURL string   `yaml:"source_url"`
 }
@@ -241,6 +243,11 @@ func Build(entries []Entry, m Manual, opts Options) (*broker.BrokerDatabase, Rep
 				b.Tags = append(b.Tags, t)
 			}
 		}
+		for _, d := range o.Disclose {
+			if !slices.Contains(b.Disclose, d) {
+				b.Disclose = append(b.Disclose, d)
+			}
+		}
 		b.Notes = appendNote(b.Notes, o.Notes)
 		rep.Overridden++
 	}
@@ -289,6 +296,9 @@ func (m Manual) validate() error {
 			if !allowedOverrideTags[t] {
 				return fmt.Errorf("override for %s: unknown tag %q", o.Email, t)
 			}
+		}
+		if _, err := config.ParseDisclosure(o.Disclose); err != nil {
+			return fmt.Errorf("override for %s: %w", o.Email, err)
 		}
 		if o.OptOutURL != "" && normalizeURL(o.OptOutURL) == "" {
 			return fmt.Errorf("override for %s: opt_out_url must be http(s)", o.Email)

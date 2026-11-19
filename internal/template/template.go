@@ -77,12 +77,19 @@ func NewEngine() (*Engine, error) {
 	return e, nil
 }
 
-// Render generates an email from a template
-func (e *Engine) Render(templateName string, profile config.Profile, b broker.Broker) (*Email, error) {
+// Render generates an email from a template. Only name, email, and the fields
+// allowed by disclose plus the broker's own Disclose list reach the email.
+func (e *Engine) Render(templateName string, profile config.Profile, disclose config.Disclosure, b broker.Broker) (*Email, error) {
 	tmpl, ok := e.templates[templateName]
 	if !ok {
 		return nil, fmt.Errorf("unknown template: %s", templateName)
 	}
+
+	brokerDisclose, err := config.ParseDisclosure(b.Disclose)
+	if err != nil {
+		return nil, fmt.Errorf("broker %s: %w", b.ID, err)
+	}
+	profile = disclose.Union(brokerDisclose).Apply(profile)
 
 	now := time.Now()
 	data := EmailData{

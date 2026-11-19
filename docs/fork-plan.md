@@ -62,18 +62,39 @@ email), 1 personal Gmail rejected, 2 domains with no mail host, 15 form-only.
 
 ## Phase 2: Send less data
 
-1. New `options.disclose` setting: which profile fields go into emails. Default:
-   name and email only. Address, phone and DOB are opt-in; brokers that need
-   them will ask.
-   - verify: a template test shows DOB/phone/address are left out by default and
-     included when enabled.
-2. Add `Date` and `Message-ID` headers, and RFC 2047-encode non-ASCII names in
-   the From header.
-   - verify: a test parses the generated message with `net/mail`.
-3. Support STARTTLS on port 587 alongside implicit TLS on 465.
-   - verify: a test against a fake SMTP server (`net/smtp` test pattern).
+Status: done.
+
+1. New `options.disclose` setting: `location`, `street_address` (which also
+   sends location), `phone` and `date_of_birth`. Default: name and email only.
+   - Brokers can add fields for themselves only, via `disclose` in a
+     `data/brokers.manual.yaml` override (needs a cited source). A broker gets
+     the global setting plus its own list.
+   - `Render` requires a `config.Disclosure` argument, so no caller can skip it.
+   - `send` prints what's sent and what's withheld; dry runs also show per-broker
+     extras.
+   - No reliable per-broker dataset of verification requirements exists (the
+     CPPA registry doesn't record it). 11 CCR § 7062 generally treats matching
+     two data points as reasonable, and name plus email are two.
+   - verify: template tests for all three templates (default, global,
+     per-broker); config and registry tests.
+2. Add `Date` and `Message-ID` headers, RFC 2047-encode the From display name,
+   and send the body as quoted-printable UTF-8. The real Message-ID is returned
+   and stored in history.
+   - verify: a fake SMTP server receives the message, and it parses with
+     `net/mail` and round-trips non-ASCII text.
+3. Support STARTTLS on 587 (the default for any non-465 port) alongside
+   implicit TLS on 465, with an optional `tls_mode` override. Fails closed if
+   STARTTLS isn't offered. Connections honor the context deadline.
+   - verify: fake-server tests for STARTTLS, implicit TLS, a missing STARTTLS,
+     an untrusted certificate and a deadline. A mutation test confirms the
+     missing-STARTTLS test catches a plaintext fallback.
 
 ## Phase 3: Inbox safety (`monitor`, scan, `cleanup-bounces`)
+
+0. Flag broker replies that ask for more identifying information, so the user
+   can add a per-broker `disclose` override (Phase 2). Match replies to sent
+   requests with `In-Reply-To` against the stored Message-ID, which is stronger
+   than sender-domain matching.
 
 1. Never match a freemail domain to a broker. Match by exact domain or a
    subdomain of a registered domain.
@@ -136,6 +157,9 @@ email), 1 personal Gmail rejected, 2 domains with no mail host, 15 form-only.
    Share one send path with the CLI so they can't drift apart.
    - verify: a test shows excluded brokers never reach the sender.
 7. The setup wizard merges into the existing config instead of replacing it.
+   Add a disclosure setting to the wizard and settings page. Today
+   `options.disclose` is only set by editing the YAML; the web UI always uses
+   the safe default, name and email only.
 8. Fix the data race on `Job` fields (found in upstream PR #18). Run tests
    with `-race`.
 9. Replace `gorilla/csrf` (GO-2025-3884: trusted-origin check is flawed, no fix

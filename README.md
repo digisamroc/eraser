@@ -125,7 +125,7 @@ profile:
   first_name: Jane
   last_name: Doe
   email: jane@example.com
-  # Optional but helps brokers find your records
+  # Optional. Kept locally; NOT sent unless listed in options.disclose
   address: "123 Main Street"
   city: "San Francisco"
   state: "CA"
@@ -140,7 +140,7 @@ email:
 
   smtp:
     host: smtp.gmail.com
-    port: 465
+    port: 465            # 465 = implicit TLS, 587 = STARTTLS
     username: jane@gmail.com
     password: your-16-char-app-password  # From Google App Passwords
     use_tls: true
@@ -148,6 +148,9 @@ email:
 options:
   template: generic  # or "gdpr" or "ccpa"
   rate_limit_ms: 2000  # delay between emails
+
+  # Optional: extra profile fields to send (name and email are always sent)
+  # disclose: [location, street_address, phone, date_of_birth]
 
   # Optional: only target specific regions
   # regions:
@@ -159,6 +162,22 @@ options:
   #   - spokeo
   #   - whitepages
 ```
+
+### What Gets Sent
+
+By default, removal emails contain only your **name and email**. Your address, phone, and date of birth stay on your machine. California's rules let a business verify a deletion request by matching about two data points it already holds, and name plus email are two. Sending every broker your date of birth would give it to companies that may never have had it.
+
+- To send more to every broker, list fields in `options.disclose`.
+- If one broker can't find you and asks for more, add a `disclose` override for just that broker in `data/brokers.manual.yaml`, citing its reply or privacy page:
+
+  ```yaml
+  overrides:
+    - email: privacy@somebroker.com
+      disclose: [date_of_birth]
+      source_url: https://somebroker.com/privacy
+  ```
+
+`eraser send --dry-run` prints exactly which fields are sent and which are withheld.
 
 ### Email Templates
 

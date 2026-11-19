@@ -77,7 +77,7 @@ func run(csvPath, manualPath, outPath string, checkMX bool, reportPath string) e
 	summary := formatReport(rep, len(db.Brokers))
 	fmt.Fprint(os.Stderr, summary)
 	if reportPath != "" {
-		if err := os.WriteFile(reportPath, []byte(summary), 0o644); err != nil {
+		if err := os.WriteFile(reportPath, []byte(summary), 0o600); err != nil {
 			return fmt.Errorf("failed to write report: %w", err)
 		}
 	}
@@ -86,7 +86,7 @@ func run(csvPath, manualPath, outPath string, checkMX bool, reportPath string) e
 
 func readRegistry(path string) ([]byte, string, error) {
 	if path != "" {
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec // G304: path is the operator's -csv flag
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to read registry: %w", err)
 		}
@@ -98,7 +98,7 @@ func readRegistry(path string) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to download registry: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", fmt.Errorf("failed to download registry: HTTP %d", resp.StatusCode)
 	}
@@ -150,7 +150,7 @@ func hasMailHost(domain string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if mx, err := net.DefaultResolver.LookupMX(ctx, domain); err == nil && len(mx) > 0 {
-		return !(len(mx) == 1 && mx[0].Host == ".") // RFC 7505 null MX: accepts no mail
+		return len(mx) != 1 || mx[0].Host != "." // RFC 7505 null MX: accepts no mail
 	}
 	addrs, err := net.DefaultResolver.LookupHost(ctx, domain)
 	return err == nil && len(addrs) > 0
@@ -161,13 +161,13 @@ func writeFileAtomic(path string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to write %s: %w", path, err)
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }() // no-op once renamed
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("failed to write %s: %w", path, err)
 	}
 	if err := tmp.Chmod(0o644); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("failed to write %s: %w", path, err)
 	}
 	if err := tmp.Close(); err != nil {

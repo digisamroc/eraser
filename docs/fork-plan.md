@@ -28,22 +28,28 @@ with a failing test that reproduces it. Pre-commit must pass before every commit
 
 ## Phase 1: Verified broker list (largest privacy win)
 
-1. Add `cmd/registry-import` (or `eraser registry sync`). It reads the CPPA
-   2026 registry CSV (`cppa.ca.gov/data_broker_registry/registry.csv`) and writes
-   `data/brokers.yaml`. Each broker gets:
-   `id, name, email, website, opt_out_url, source: ca-cppa-2026, verified_at`.
-   - Normalizes `[at]` obfuscation, lowercases, and dedupes.
-   - Rejects freemail domains (gmail/outlook/hotmail/yahoo/aol/icloud) unless
-     an allowlist names them explicitly.
-   - Optional `--check-mx`: drops domains with no MX/A record.
+Status: done. 625 registry rows produce 598 brokers: 24 merged (shared
+email), 1 personal Gmail rejected, 2 domains with no mail host, 15 form-only.
+
+1. Add `cmd/registry-import`. It reads the CPPA registry CSV
+   (`cppa.ca.gov/data_broker_registry/registry.csv`) and writes
+   `data/brokers.yaml`. Each broker gets `source`, `source_url` and
+   `registry_id`.
+   - Normalizes `[at]` obfuscation, lowercases, and merges duplicate emails.
+     Adds `https://` to bare domains and takes the first site from a list.
+   - Rejects personal mailbox domains, with no allowlist.
+   - Optional `-check-mx`: drops domains with no MX/A record (honors null MX).
    - verify: unit tests on CSV fixtures (obfuscated email, freemail, duplicate,
-     malformed); the generated count is roughly 625 minus rejections.
-2. Keep a small hand-curated `data/brokers.manual.yaml` for people-search sites
-   that aren't in the registry. Each entry needs a `source_url` that cites the
-   broker's own privacy page. An entry with no citation fails to load.
-   - verify: a loader test fails on an entry with no citation.
-3. Fold in useful data from upstream PR #29 (real bounce reports) as `flagged`
-   entries or removals. Re-check each one; don't trust it blind.
+     malformed).
+2. Keep a small hand-curated `data/brokers.manual.yaml` (add / overrides /
+   exclude), applied when the list is generated. Every entry needs an https
+   `source_url`. An entry with no citation fails the build.
+   - verify: tests fail on entries with no citation.
+3. Fold in useful data from upstream PR #29: 15 registry addresses it reports
+   as "email not processed" became `form-only` overrides that cite PR #29.
+   Only addresses that also appear in the registry were used. The PR's other
+   41 flagged addresses aren't in the generated list at all. `send` (CLI and web)
+   skips form-only brokers; the web UI shows the form link instead.
 4. Load-time checks in `broker.LoadFromFile`: email must parse, no freemail,
    ids unique, region/category from a fixed set.
    - verify: tests for each rejection.
@@ -158,6 +164,9 @@ with a failing test that reproduces it. Pre-commit must pass before every commit
 3. Remove dead code: `brokerDB.Save` with 0644, SendGrid/Resend references, and
    unused fields.
 4. Add a `SECURITY.md` with the threat model and how to report issues.
+5. `add-broker` and `cleanup-bounces --remove` still write to the generated
+   `data/brokers.yaml`, so the next regeneration loses their changes. Make
+   them write `add` / `exclude` entries to `data/brokers.manual.yaml` instead.
 
 ## Phase 8 (optional): Contribute back
 

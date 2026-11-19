@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -344,7 +345,7 @@ func (s *Server) resumePendingJob(state *PersistentJobState) {
 
 	var toSend []BrokerWithStatus
 	for _, id := range state.RemainingBrokers {
-		if b, ok := brokerMap[id]; ok {
+		if b, ok := brokerMap[id]; ok && b.EmailAccepted() {
 			toSend = append(toSend, BrokerWithStatus{Broker: b, Status: "never"})
 		}
 	}
@@ -697,6 +698,11 @@ func (s *Server) handleAPISendOne(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<span class="text-red-600">Broker not found</span>`))
 		return
 	}
+	if !br.EmailAccepted() {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`<span class="text-red-600">This broker does not process emailed requests. Use its opt-out form.</span>`))
+		return
+	}
 
 	if s.config == nil || s.config.Email.Provider == "" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -801,7 +807,8 @@ func (s *Server) handleAPISendAll(w http.ResponseWriter, r *http.Request) {
 		status = "pending"
 	}
 
-	toSend := s.getBrokersWithStatus(search, category, region, status)
+	toSend := slices.DeleteFunc(s.getBrokersWithStatus(search, category, region, status),
+		func(b BrokerWithStatus) bool { return !b.EmailAccepted() })
 
 	if len(toSend) == 0 {
 		w.WriteHeader(http.StatusBadRequest)
@@ -1045,7 +1052,8 @@ func (s *Server) getBrokersWithStatus(search, category, region, statusFilter str
 		if search != "" {
 			name := strings.ToLower(b.Name)
 			email := strings.ToLower(b.Email)
-			if !strings.Contains(name, search) && !strings.Contains(email, search) {
+			notes := strings.ToLower(b.Notes)
+			if !strings.Contains(name, search) && !strings.Contains(email, search) && !strings.Contains(notes, search) {
 				continue
 			}
 		}

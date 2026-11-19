@@ -171,6 +171,7 @@
                         </td>
                         <td class="text-right">
                             <div class="flex items-center justify-end gap-2">
+                                {{if .EmailAccepted}}
                                 <button
                                     class="btn btn-ghost text-sm py-1 px-3"
                                     hx-post="/api/send/{{.ID}}"
@@ -183,6 +184,9 @@
                                         <span class="spinner"></span>
                                     </span>
                                 </button>
+                                {{else}}
+                                <span class="text-xs text-muted" title="This broker does not process emailed requests. Use its opt-out form.">Form only</span>
+                                {{end}}
                                 {{if .OptOutURL}}
                                 <a href="{{.OptOutURL}}" target="_blank" class="btn btn-ghost text-sm py-1 px-3">
                                     Opt-out
@@ -239,6 +243,7 @@
                     {{end}}
                 </div>
                 <div class="flex gap-2">
+                    {{if .EmailAccepted}}
                     <button
                         class="btn btn-primary flex-1 py-2"
                         hx-post="/api/send/{{.ID}}"
@@ -247,6 +252,9 @@
                     >
                         Send Request
                     </button>
+                    {{else}}
+                    <span class="text-xs text-muted" title="This broker does not process emailed requests. Use its opt-out form.">Form only</span>
+                    {{end}}
                     {{if .OptOutURL}}
                     <a href="{{.OptOutURL}}" target="_blank" class="btn btn-secondary py-2">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

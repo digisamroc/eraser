@@ -734,6 +734,18 @@ func (s *Server) handleAPISendOne(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// newInboxMonitor creates a monitor that can also match replies to sent
+// requests by In-Reply-To.
+func (s *Server) newInboxMonitor() *inbox.Monitor {
+	m := inbox.NewMonitor(s.config.Inbox, s.brokerDB.Brokers)
+	if s.historyStore != nil {
+		if ids, err := s.historyStore.SentMessageIDs(); err == nil {
+			m.SetSentMessageIDs(ids)
+		}
+	}
+	return m
+}
+
 // deliverer builds the shared send path from the current config.
 func (s *Server) deliverer() (sendplan.Deliverer, config.Disclosure, error) {
 	if s.historyStore == nil {
@@ -1846,7 +1858,7 @@ func (s *Server) handleAPIInboxScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create inbox monitor
-	monitor := inbox.NewMonitor(s.config.Inbox, s.brokerDB.Brokers)
+	monitor := s.newInboxMonitor()
 
 	// Connect to IMAP
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
@@ -1895,34 +1907,13 @@ func (s *Server) handleAPIInboxScan(w http.ResponseWriter, r *http.Request) {
 
 	// Classify and store each email
 	var success, formRequired, confirmRequired, rejected, unknown int
-	var processedUIDs []uint32 // Track UIDs for archiving
 	for _, email := range emails {
 		classified := inbox.ClassifyResponse(&email)
-		processedUIDs = append(processedUIDs, email.UID)
-
-		// Get body content (prefer plain text, fall back to HTML)
-		bodyContent := email.Body
-		if bodyContent == "" {
-			bodyContent = email.HTMLBody
-		}
-
-		// Store in database
-		brokerResp := &history.BrokerResponse{
-			BrokerID:     email.BrokerID,
-			BrokerName:   email.BrokerName,
-			ResponseType: string(classified.Type),
-			EmailFrom:    email.From,
-			EmailSubject: email.Subject,
-			EmailBody:    bodyContent,
-			FormURL:      classified.FormURL,
-			ConfirmURL:   classified.ConfirmURL,
-			Confidence:   classified.Confidence,
-			NeedsReview:  classified.NeedsReview,
-			ReceivedAt:   email.ReceivedAt,
-		}
 
 		if s.historyStore != nil {
-			s.historyStore.AddBrokerResponse(brokerResp)
+			if _, err := inbox.Record(s.historyStore, &email, classified); err != nil {
+				log.Printf("Warning: %v", err)
+			}
 		}
 
 		// Count by type
@@ -1940,14 +1931,13 @@ func (s *Server) handleAPIInboxScan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Auto-archive processed emails to the Eraser folder
-	var archived int
-	if s.config.Inbox.AutoArchive && len(processedUIDs) > 0 {
-		if err := monitor.ArchiveEmails(processedUIDs, s.config.Inbox.ArchiveFolder); err != nil {
+	// Auto-archive processed emails to the Eraser folder. Only messages
+	// fetched from the inbox are moved (UIDs are per-folder).
+	if s.config.Inbox.AutoArchive {
+		if n, err := monitor.ArchiveEmails(emails, s.config.Inbox.ArchiveFolder); err != nil {
 			log.Printf("Warning: failed to archive emails: %v", err)
-		} else {
-			archived = len(processedUIDs)
-			log.Printf("Archived %d emails to %s folder", archived, s.config.Inbox.ArchiveFolder)
+		} else if n > 0 {
+			log.Printf("Archived %d emails to %s folder", n, s.config.Inbox.ArchiveFolder)
 		}
 	}
 
@@ -1997,7 +1987,7 @@ func (s *Server) handleAPIInboxRescan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create inbox monitor
-	monitor := inbox.NewMonitor(s.config.Inbox, s.brokerDB.Brokers)
+	monitor := s.newInboxMonitor()
 
 	// Connect to IMAP with longer timeout for full rescan
 	ctx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
@@ -2050,50 +2040,15 @@ func (s *Server) handleAPIInboxRescan(w http.ResponseWriter, r *http.Request) {
 	for _, email := range emails {
 		classified := inbox.ClassifyResponse(&email)
 
-		// Get body content (prefer plain text, fall back to HTML)
-		bodyContent := email.Body
-		if bodyContent == "" {
-			bodyContent = email.HTMLBody
-		}
-
-		// Check if this response already exists
 		if s.historyStore != nil {
-			existing, _ := s.historyStore.FindBrokerResponseBySubject(email.BrokerID, email.Subject)
-			if existing != nil {
-				// Update existing response classification
-				err := s.historyStore.UpdateBrokerResponseClassification(
-					existing.ID,
-					string(classified.Type),
-					classified.FormURL,
-					classified.ConfirmURL,
-					classified.Confidence,
-					classified.NeedsReview,
-				)
-				if err == nil {
-					updated++
-				}
-				// Also update the body if it was empty
-				if existing.EmailBody == "" && bodyContent != "" {
-					s.historyStore.UpdateBrokerResponseBody(existing.ID, bodyContent)
-				}
-			} else {
-				// Insert new response
-				brokerResp := &history.BrokerResponse{
-					BrokerID:     email.BrokerID,
-					BrokerName:   email.BrokerName,
-					ResponseType: string(classified.Type),
-					EmailFrom:    email.From,
-					EmailSubject: email.Subject,
-					EmailBody:    bodyContent,
-					FormURL:      classified.FormURL,
-					ConfirmURL:   classified.ConfirmURL,
-					Confidence:   classified.Confidence,
-					NeedsReview:  classified.NeedsReview,
-					ReceivedAt:   email.ReceivedAt,
-				}
-				if err := s.historyStore.AddBrokerResponse(brokerResp); err == nil {
-					inserted++
-				}
+			isNew, err := inbox.Record(s.historyStore, &email, classified)
+			switch {
+			case err != nil:
+				log.Printf("Warning: %v", err)
+			case isNew:
+				inserted++
+			default:
+				updated++
 			}
 		}
 
@@ -2182,7 +2137,7 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 	if missingBodies > 0 && s.config.Inbox.Server != "" && s.brokerDB != nil {
 		log.Printf("Found %d records missing email bodies, fetching from IMAP...", missingBodies)
 
-		monitor := inbox.NewMonitor(s.config.Inbox, s.brokerDB.Brokers)
+		monitor := s.newInboxMonitor()
 
 		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 		defer cancel()
@@ -2196,7 +2151,7 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 			var allEmails []inbox.Email
 
 			// Fetch from INBOX
-			emails, err := monitor.FetchRecentEmails(ctx, 30) // 30 days
+			emails, err := monitor.FetchBrokerEmails(ctx, 30) // 30 days
 			if err != nil {
 				log.Printf("Warning: failed to fetch from INBOX: %v", err)
 			} else {
@@ -2215,19 +2170,11 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 
 			log.Printf("Fetched %d emails from IMAP", len(allEmails))
 
-			// Build lookup map: key = "broker_id|subject" -> email body
-			emailBodies := make(map[string]string)
+			// Build lookup map: key = "broker_id|subject" -> fetched email
+			fetched := make(map[string]inbox.Email)
 			for _, email := range allEmails {
-				if email.BrokerID == "" {
-					continue // Not matched to a broker
-				}
-				key := email.BrokerID + "|" + email.Subject
-				body := email.Body
-				if body == "" {
-					body = email.HTMLBody
-				}
-				if body != "" {
-					emailBodies[key] = body
+				if email.Body != "" || email.HTMLBody != "" {
+					fetched[email.BrokerID+"|"+email.Subject] = email
 				}
 			}
 
@@ -2237,7 +2184,11 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 					continue // Already has body
 				}
 				key := resp.BrokerID + "|" + resp.EmailSubject
-				if body, ok := emailBodies[key]; ok {
+				if email, ok := fetched[key]; ok {
+					body := email.Body
+					if body == "" {
+						body = email.HTMLBody
+					}
 					err := s.historyStore.UpdateBrokerResponseBody(resp.ID, body)
 					if err == nil {
 						bodiesUpdated++
@@ -2245,6 +2196,7 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 						for i := range responses {
 							if responses[i].ID == resp.ID {
 								responses[i].EmailBody = body
+								responses[i].Authenticated = email.Authenticated
 								break
 							}
 						}
@@ -2267,10 +2219,13 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 
 		if resp.EmailBody != "" {
 			// Use full classifier with body
+			// Links are only taken from email whose sender was verified
+			// when it was fetched.
 			email := &inbox.Email{
-				From:    resp.EmailFrom,
-				Subject: resp.EmailSubject,
-				Body:    resp.EmailBody,
+				From:          resp.EmailFrom,
+				Subject:       resp.EmailSubject,
+				Body:          resp.EmailBody,
+				Authenticated: resp.Authenticated,
 			}
 			classified := inbox.ClassifyResponse(email)
 			newType = classified.Type
@@ -2281,8 +2236,10 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// Fall back to subject-only classification
 			newType, confidence, needsReview = inbox.ClassifyBySubjectOnly(resp.EmailSubject)
-			formURL = resp.FormURL
-			confirmURL = resp.ConfirmURL
+			if resp.Authenticated {
+				formURL = resp.FormURL
+				confirmURL = resp.ConfirmURL
+			}
 		}
 
 		// Only update if classification changed or was unknown
@@ -2294,6 +2251,7 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 				confirmURL,
 				confidence,
 				needsReview,
+				resp.Authenticated,
 			)
 			if err == nil {
 				updated++

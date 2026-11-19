@@ -14,9 +14,20 @@ const (
 	ResponseSuccess              ResponseType = "success"               // Removal confirmed/completed
 	ResponseRejected             ResponseType = "rejected"              // Request denied
 	ResponsePending              ResponseType = "pending"               // Processing, will follow up
+	ResponseInfoRequired         ResponseType = "info_required"         // Broker needs more details to find the user
 	ResponseBounced              ResponseType = "bounced"               // Email bounced - invalid address
 	ResponseUnknown              ResponseType = "unknown"               // Needs manual review
 )
+
+// scoreOrder breaks ties between equal scores: earlier wins.
+var scoreOrder = []ResponseType{
+	ResponseRejected,
+	ResponseInfoRequired,
+	ResponseFormRequired,
+	ResponseConfirmationRequired,
+	ResponseSuccess,
+	ResponsePending,
+}
 
 // ClassifiedResponse represents a classified email response
 type ClassifiedResponse struct {
@@ -113,6 +124,15 @@ var (
 		*regexp.MustCompile(`(?i)(this\s+)?(email|inbox)\s+(address\s+)?(is\s+)?not\s+(a\s+)?(mechanism|intended)\s+(for|to)`),
 		*regexp.MustCompile(`(?i)not\s+intended\s+for\s+(the\s+)?(submission|handling)\s+of\s+privacy`),
 		*regexp.MustCompile(`(?i)will\s+not\s+be\s+considered\s+a\s+valid\s+submission`),
+	}
+
+	// Info required: the broker couldn't find the user and asks for more
+	// details. The user may add a per-broker disclose override in response.
+	infoRequiredPatterns = []regexp.Regexp{
+		*regexp.MustCompile(`(?i)(unable\s+to|not\s+able\s+to|could\s*(not|n't))\s+(locate|find|identify|match)\s+(you\b|your\s+(records?|information|data|profile|file)|a\s+(profile|record|match))`),
+		*regexp.MustCompile(`(?i)(need|require)s?\s+(some\s+)?(additional|more|further)\s+(information|details|info)`),
+		*regexp.MustCompile(`(?i)please\s+(provide|send|reply\s+with|include)\s+(us\s+)?(with\s+)?(your\s+)?(full\s+|current\s+)?(postal\s+|mailing\s+|home\s+)?(address|date\s+of\s+birth|phone(\s+number)?|dob)`),
+		*regexp.MustCompile(`(?i)in\s+order\s+to\s+(locate|find|identify|search\s+for)\s+(you|your)`),
 	}
 
 	// Pending indicators
@@ -239,8 +259,11 @@ func ClassifyResponse(email *Email) ClassifiedResponse {
 		Confidence: 0.0,
 	}
 
-	// Extract URLs from the email
-	result.URLs = ParseEmailURLs(email)
+	// Only take links from senders the user's mail provider verified. A
+	// spoofed "broker" email must never supply a URL for fill or confirm.
+	if email.Authenticated {
+		result.URLs = ParseEmailURLs(email)
+	}
 
 	// Get the text content to analyze
 	content := email.Body
@@ -253,7 +276,7 @@ func ClassifyResponse(email *Email) ClassifiedResponse {
 	subject := strings.ToLower(email.Subject)
 
 	// Check if this is a test email (from Eraser itself)
-	if isTestEmail(subject, content) {
+	if email.Authenticated && isTestEmail(subject, content) {
 		result.Type = ResponseSuccess
 		result.Confidence = 1.0
 		result.Reason = "Test email from Eraser - email configuration verified"
@@ -278,6 +301,7 @@ func ClassifyResponse(email *Email) ClassifiedResponse {
 		ResponseConfirmationRequired: 0,
 		ResponseRejected:             0,
 		ResponsePending:              0,
+		ResponseInfoRequired:         0,
 	}
 
 	// Check for subject-specific patterns (strong signal - worth +3)
@@ -337,6 +361,12 @@ func ClassifyResponse(email *Email) ClassifiedResponse {
 		}
 	}
 
+	for _, pattern := range infoRequiredPatterns {
+		if pattern.MatchString(content) {
+			scores[ResponseInfoRequired]++
+		}
+	}
+
 	// Boost scores based on URL presence
 	if len(result.URLs.FormURLs) > 0 {
 		scores[ResponseFormRequired] += 2
@@ -345,10 +375,12 @@ func ClassifyResponse(email *Email) ClassifiedResponse {
 		scores[ResponseConfirmationRequired] += 2
 	}
 
-	// Find the highest scoring type and second highest
+	// Find the highest scoring type and second highest. Iterate in a fixed
+	// order so ties resolve the same way every time (map order is random).
 	maxScore := 0
 	secondScore := 0
-	for responseType, score := range scores {
+	for _, responseType := range scoreOrder {
+		score := scores[responseType]
 		if score > maxScore {
 			secondScore = maxScore
 			maxScore = score
@@ -405,6 +437,11 @@ func ClassifyResponse(email *Email) ClassifiedResponse {
 	// Classified items with any confidence don't need review since patterns matched
 	result.NeedsReview = result.Type == ResponseUnknown || (result.Confidence < 0.4 && result.Type != ResponseUnknown)
 
+	if !email.Authenticated {
+		result.NeedsReview = true
+		result.Reason += " (sender not verified by your mail provider; links ignored)"
+	}
+
 	return result
 }
 
@@ -421,6 +458,8 @@ func getClassificationReason(responseType ResponseType, score int) string {
 		return "Broker rejected or could not process the removal request"
 	case ResponsePending:
 		return "Request is being processed, follow-up may be needed"
+	case ResponseInfoRequired:
+		return "Broker needs more information to find your records; consider a per-broker disclose override"
 	case ResponseUnknown:
 		return "Could not automatically classify this response"
 	default:

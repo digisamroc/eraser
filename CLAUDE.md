@@ -92,6 +92,19 @@ go test ./...
 ./eraser status
 ```
 
+## Inbox Monitoring Rules (internal/inbox)
+
+- Fetch is two-pass: envelopes for the search window, then `BODY.PEEK[]` only
+  for messages whose sender matches a broker (or whose In-Reply-To matches a
+  sent Message-ID). Mailboxes are opened read-only (EXAMINE) for fetching.
+- `Email.Authenticated` comes from the topmost `Authentication-Results`
+  header only (DMARC pass or aligned DKIM pass). `ClassifyResponse` extracts
+  no URLs from unauthenticated mail, and `inbox.Record` only updates pipeline
+  status for authenticated mail. Keep both invariants.
+- Store responses through `inbox.Record` (dedupes by broker and subject).
+- UIDs are per-folder: `ArchiveEmails` only moves emails fetched from the
+  configured folder.
+
 ## Configuration
 
 User config is stored at `~/.eraser/config.yaml`. See `config.example.yaml` for the full schema. Key sections:

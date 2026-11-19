@@ -1,7 +1,9 @@
 package history
 
 import (
+	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,6 +42,92 @@ func TestGetAllBrokerStatusesRoundTrip(t *testing.T) {
 	}
 	if d := got.LastSent.Sub(now); d < -time.Second || d > time.Second {
 		t.Errorf("LastSent = %v, want ~%v", got.LastSent, now)
+	}
+}
+
+func TestBrokerResponseRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	received := time.Now().Add(-2 * time.Hour)
+	in := &BrokerResponse{
+		BrokerID: "acme", BrokerName: "Acme", ResponseType: "info_required",
+		EmailFrom: "privacy@acme.example", EmailSubject: "Re: request", EmailBody: "Please send your address.",
+		FormURL: "https://acme.example/dsr", Confidence: 0.8, NeedsReview: true, Authenticated: true,
+		ReceivedAt: received,
+	}
+	if err := s.AddBrokerResponse(in); err != nil {
+		t.Fatalf("AddBrokerResponse: %v", err)
+	}
+	all, err := s.GetAllBrokerResponses()
+	if err != nil || len(all) != 1 {
+		t.Fatalf("GetAllBrokerResponses = %v, %v", all, err)
+	}
+	got := all[0]
+	if got.EmailBody != in.EmailBody || !got.Authenticated || got.FormURL != in.FormURL || !got.NeedsReview {
+		t.Errorf("round trip lost fields: %+v", got)
+	}
+	if d := got.ReceivedAt.Sub(received); d < -time.Second || d > time.Second {
+		t.Errorf("ReceivedAt = %v, want ~%v", got.ReceivedAt, received)
+	}
+	if got.CreatedAt.IsZero() {
+		t.Error("CreatedAt not parsed")
+	}
+}
+
+// Databases created by older versions have no email_body or authenticated
+// column; opening them must add both.
+func TestMigrateAddsBrokerResponseColumns(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.db")
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.Exec(`CREATE TABLE broker_responses (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, broker_id TEXT NOT NULL, broker_name TEXT NOT NULL,
+		response_type TEXT NOT NULL, email_from TEXT, email_subject TEXT, form_url TEXT, confirm_url TEXT,
+		confidence REAL, needs_review INTEGER DEFAULT 0, received_at DATETIME, processed_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`); err != nil {
+		t.Fatal(err)
+	}
+	_ = old.Close()
+
+	s, err := NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.AddBrokerResponse(&BrokerResponse{BrokerID: "a", BrokerName: "A", ResponseType: "success", EmailBody: "b"}); err != nil {
+		t.Fatalf("insert into migrated table: %v", err)
+	}
+}
+
+func TestBrokerResponseBodyIsCapped(t *testing.T) {
+	s := newTestStore(t)
+	big := strings.Repeat("x", MaxStoredBodyBytes+500)
+	if err := s.AddBrokerResponse(&BrokerResponse{BrokerID: "a", BrokerName: "A", ResponseType: "unknown", EmailBody: big}); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := s.GetAllBrokerResponses()
+	if n := len(all[0].EmailBody); n != MaxStoredBodyBytes {
+		t.Fatalf("stored body is %d bytes, want %d", n, MaxStoredBodyBytes)
+	}
+}
+
+func TestSentMessageIDs(t *testing.T) {
+	s := newTestStore(t)
+	for _, r := range []*Record{
+		{BrokerID: "acme", BrokerName: "Acme", Email: "p@acme.example", Template: "generic", Status: StatusSent, MessageID: "<abc@me.example>", SentAt: time.Now()},
+		{BrokerID: "beta", BrokerName: "Beta", Email: "p@beta.example", Template: "generic", Status: StatusFailed, MessageID: "", SentAt: time.Now()},
+	} {
+		if err := s.Add(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids, err := s.SentMessageIDs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids["<abc@me.example>"] != "acme" {
+		t.Fatalf("SentMessageIDs = %v", ids)
 	}
 }
 

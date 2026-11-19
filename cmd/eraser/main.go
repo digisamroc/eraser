@@ -723,8 +723,11 @@ func runMonitor(days int, once bool, watch bool) error {
 	}
 	defer store.Close()
 
-	// Create inbox monitor
+	// Create inbox monitor; sent Message-IDs let it match replies by In-Reply-To.
 	monitor := inbox.NewMonitor(cfg.Inbox, brokerDB.Brokers)
+	if ids, err := store.SentMessageIDs(); err == nil {
+		monitor.SetSentMessageIDs(ids)
+	}
 
 	// Connect to IMAP
 	ctx, cancel := context.WithCancel(context.Background())
@@ -769,43 +772,10 @@ func runMonitor(days int, once bool, watch bool) error {
 		classified := inbox.ClassifyResponse(&email)
 		responses = append(responses, classified)
 
-		// Store in database
-		brokerResp := &history.BrokerResponse{
-			BrokerID:     email.BrokerID,
-			BrokerName:   email.BrokerName,
-			ResponseType: string(classified.Type),
-			EmailFrom:    email.From,
-			EmailSubject: email.Subject,
-			FormURL:      classified.FormURL,
-			ConfirmURL:   classified.ConfirmURL,
-			Confidence:   classified.Confidence,
-			NeedsReview:  classified.NeedsReview,
-			ReceivedAt:   email.ReceivedAt,
-		}
-
-		if err := store.AddBrokerResponse(brokerResp); err != nil {
+		// Store (or update) the response; pipeline status only changes for
+		// verified senders.
+		if _, err := inbox.Record(store, &email, classified); err != nil {
 			fmt.Printf("⚠️  Failed to store response: %v\n", err)
-		}
-
-		// Update pipeline status for the broker
-		var pipelineStatus history.PipelineStatus
-		switch classified.Type {
-		case inbox.ResponseSuccess:
-			pipelineStatus = history.PipelineConfirmed
-		case inbox.ResponseFormRequired:
-			pipelineStatus = history.PipelineFormRequired
-		case inbox.ResponseConfirmationRequired:
-			pipelineStatus = history.PipelineAwaitingConfirmation
-		case inbox.ResponseRejected:
-			pipelineStatus = history.PipelineRejected
-		case inbox.ResponsePending:
-			pipelineStatus = history.PipelineAwaitingResponse
-		default:
-			pipelineStatus = history.PipelineAwaitingResponse
-		}
-
-		if err := store.UpdatePipelineStatus(email.BrokerID, pipelineStatus); err != nil {
-			// Ignore error if no matching record
 		}
 
 		// Print summary
@@ -819,22 +789,10 @@ func runMonitor(days int, once bool, watch bool) error {
 		// Ensure archive folder exists
 		if err := monitor.EnsureFolderExists(archiveFolder); err != nil {
 			fmt.Printf("⚠️  Could not create archive folder: %v\n", err)
-		} else {
-			// Collect UIDs to archive
-			var uidsToArchive []uint32
-			for _, email := range emails {
-				if email.UID > 0 {
-					uidsToArchive = append(uidsToArchive, email.UID)
-				}
-			}
-
-			if len(uidsToArchive) > 0 {
-				if err := monitor.ArchiveEmails(uidsToArchive, archiveFolder); err != nil {
-					fmt.Printf("⚠️  Could not archive emails: %v\n", err)
-				} else {
-					fmt.Printf("📁 Archived %d emails to '%s'\n", len(uidsToArchive), archiveFolder)
-				}
-			}
+		} else if n, err := monitor.ArchiveEmails(emails, archiveFolder); err != nil {
+			fmt.Printf("⚠️  Could not archive emails: %v\n", err)
+		} else if n > 0 {
+			fmt.Printf("📁 Archived %d emails to '%s'\n", n, archiveFolder)
 		}
 	}
 
@@ -868,20 +826,9 @@ func runMonitor(days int, once bool, watch bool) error {
 			classified := inbox.ClassifyResponse(&email)
 			printClassifiedResponse(classified)
 
-			// Store response
-			brokerResp := &history.BrokerResponse{
-				BrokerID:     email.BrokerID,
-				BrokerName:   email.BrokerName,
-				ResponseType: string(classified.Type),
-				EmailFrom:    email.From,
-				EmailSubject: email.Subject,
-				FormURL:      classified.FormURL,
-				ConfirmURL:   classified.ConfirmURL,
-				Confidence:   classified.Confidence,
-				NeedsReview:  classified.NeedsReview,
-				ReceivedAt:   email.ReceivedAt,
+			if _, err := inbox.Record(store, &email, classified); err != nil {
+				fmt.Printf("⚠️  Failed to store response: %v\n", err)
 			}
-			store.AddBrokerResponse(brokerResp)
 		})
 
 		if err != nil && err != context.Canceled {
@@ -905,11 +852,19 @@ func printClassifiedResponse(r inbox.ClassifiedResponse) {
 		icon = "❌"
 	case inbox.ResponsePending:
 		icon = "⏳"
+	case inbox.ResponseInfoRequired:
+		icon = "🔎"
 	default:
 		icon = "❓"
 	}
 
 	fmt.Printf("%s %s - %s\n", icon, r.Email.BrokerName, r.Type)
+	if !r.Email.Authenticated {
+		fmt.Printf("   ⚠️  Sender not verified by your mail provider; links ignored\n")
+	}
+	if r.Type == inbox.ResponseInfoRequired {
+		fmt.Printf("   🔎 Broker wants more details. If you agree, add a disclose override for %s in data/brokers.manual.yaml\n", r.Email.BrokerID)
+	}
 	fmt.Printf("   Subject: %s\n", r.Email.Subject)
 
 	if r.FormURL != "" {
@@ -949,6 +904,7 @@ func runPipelineStatus() error {
 	fmt.Printf("  ✅ CAPTCHA solved:        %d\n", pipelineStats[history.PipelineCaptchaSolved])
 	fmt.Printf("  🔗 Awaiting confirmation: %d\n", pipelineStats[history.PipelineAwaitingConfirmation])
 	fmt.Printf("  ✅ Confirmed:             %d\n", pipelineStats[history.PipelineConfirmed])
+	fmt.Printf("  🔎 Info required:         %d\n", pipelineStats[history.PipelineInfoRequired])
 	fmt.Printf("  ❌ Rejected:              %d\n", pipelineStats[history.PipelineRejected])
 	fmt.Printf("  💥 Failed:                %d\n", pipelineStats[history.PipelineFailed])
 

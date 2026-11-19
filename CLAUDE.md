@@ -73,7 +73,8 @@ Each of these closes a real bug or leak. Tests cover them.
   `confirm` checks every redirect hop. Each field is filled by one in-page
   script that first checks the page is still on the checked origin, skips
   fields already filled (`data-eraser-filled`) and marks the one it fills.
-  Only click a submit control inside a form with fields we filled; never
+  Fill only the one form that best matches the profile (`data-eraser-form`;
+  a tie fills nothing), and only click a submit control inside it; never
   report a submit that didn't happen.
 - **Web UI:** listens on 127.0.0.1; Host header must be `localhost:PORT` or
   `127.0.0.1:PORT` (DNS rebinding); `http.CrossOriginProtection` guards

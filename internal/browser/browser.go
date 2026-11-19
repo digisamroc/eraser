@@ -317,31 +317,29 @@ func (b *Browser) submitAndRecord(ctx context.Context, result *FormResult, broke
 	}
 }
 
-// markSubmitJS marks the submit control of a form containing fields we
-// filled (marked by fillFieldJS), only while the page is still on origin.
-// Only controls inside such a form count, so a page's unrelated buttons
-// ("Delete my account", a pre-filled search box) are never clicked. A
-// <button> without a type submits its form; other buttons need submit-like
-// text. Returns false when there is no such control.
+// markSubmitJS marks the submit control of the form Fill picked and filled
+// (marked by pickFormJS and fillFieldJS), only while the page is still on
+// origin. Only controls inside that form count, so a page's unrelated
+// buttons and forms ("Delete my account", a newsletter sign-up, a pre-filled
+// search box) are never clicked. A <button> without a type submits its form;
+// other buttons need submit-like text. Returns false when there is no such
+// control.
 const markSubmitJS = `(function(origin) {
 	if (location.origin !== origin) return false;
 	var words = /(submit|send|remove|delete|opt[\s-]?out|request|continue)/i;
-	var forms = Array.from(document.forms).filter(function(f) {
-		return f.querySelector('[data-eraser-filled]') !== null;
-	});
-	for (var i = 0; i < forms.length; i++) {
-		var controls = forms[i].querySelectorAll('button, input[type="submit"], [role="button"]');
-		for (var j = 0; j < controls.length; j++) {
-			var el = controls[j];
-			if (el.offsetParent === null || el.disabled) continue;
-			var type = (el.getAttribute('type') || '').toLowerCase();
-			if (type === 'reset') continue;
-			var label = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim();
-			var isSubmit = type === 'submit' || (el.tagName === 'BUTTON' && !el.hasAttribute('type'));
-			if (isSubmit || words.test(label)) {
-				el.setAttribute('data-eraser-submit', '1');
-				return true;
-			}
+	var form = document.querySelector('form[data-eraser-form]');
+	if (!form || !form.querySelector('[data-eraser-filled]')) return false;
+	var controls = form.querySelectorAll('button, input[type="submit"], [role="button"]');
+	for (var j = 0; j < controls.length; j++) {
+		var el = controls[j];
+		if (el.offsetParent === null || el.disabled) continue;
+		var type = (el.getAttribute('type') || '').toLowerCase();
+		if (type === 'reset') continue;
+		var label = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim();
+		var isSubmit = type === 'submit' || (el.tagName === 'BUTTON' && !el.hasAttribute('type'));
+		if (isSubmit || words.test(label)) {
+			el.setAttribute('data-eraser-submit', '1');
+			return true;
 		}
 	}
 	return false;

@@ -631,6 +631,21 @@ where the driver would read options from the path.
   or the `?` check makes a test fail; the UI test passes 10/10 under
   `-race`.
 
+## Follow-up: fill one form only (2026-11-19)
+
+Status: done. Found in the final review. Each field went into the first
+matching input anywhere on the page, and submitting clicked the first form
+holding any filled field. A newsletter box above the removal form got the
+email, the newsletter form was submitted, the removal form never was, and
+the run still reported "Form submitted" (`form_filled`). Now `Fill` first
+scores every form by how many profile fields it has, marks the best one
+(`data-eraser-form`) and fills and submits only inside it. A tie for best
+fills nothing (`ErrAmbiguousForm`). Pages with no matching field in any
+form are filled page-wide as before, and can't be submitted.
+- verify: real-Chrome tests with a newsletter form above the removal form
+  (only the removal form is filled and submitted) and with two email-only
+  forms (nothing filled or submitted); both failed before the fix.
+
 ---
 
 ## Decisions (2026-11-18)

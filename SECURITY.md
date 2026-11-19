@@ -52,7 +52,9 @@ checks it before navigating, after the page loads (catching redirects), after
 a CAPTCHA wait, and before submitting, and each field is filled only while the
 page is still on the checked origin (one in-page step per field, so a page
 can't navigate between the check and the fill). `confirm` checks every
-redirect hop. Only a submit button inside a form Eraser filled is clicked.
+redirect hop. Eraser fills only the one form on the page that best matches
+the profile (if two match equally well, it fills nothing), and only that
+form's submit button is clicked.
 Chrome always runs with its sandbox.
 
 **Malicious websites attacking the local web UI.**

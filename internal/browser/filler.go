@@ -40,18 +40,37 @@ func NewFormFiller(profile *config.Profile) *FormFiller {
 // so filling stopped.
 var ErrPageChanged = errors.New("the page navigated while it was being filled; filling stopped")
 
+// ErrAmbiguousForm means several forms on the page match the profile equally
+// well, so nothing was filled: fill the right one by hand.
+var ErrAmbiguousForm = errors.New("several forms on the page could be the removal form; nothing was filled, fill it by hand")
+
 // Fill fills the form fields the profile has values for. origin is the page
 // origin (scheme://host[:port]) that passed the caller's URL check: each
 // field is filled only while the page is still there, and filling stops with
 // ErrPageChanged once it isn't.
+//
+// Fields are filled only in the form with the most fields matching the
+// profile (a newsletter box above the removal form must not get the email),
+// and that form is the only one submitForm may submit. A tie for the best
+// form fills nothing (ErrAmbiguousForm). Fields are filled anywhere on the
+// page only when no form has a match; such a page can't be submitted.
 func (f *FormFiller) Fill(ctx context.Context, origin string) (*FillResult, error) {
 	result := &FillResult{}
+	var mappings []FieldMapping
 	for _, mapping := range f.getFieldMappings() {
 		if mapping.ProfileValue == "" {
 			result.MissingFields = append(result.MissingFields, mapping.FieldType)
 			continue
 		}
-		js, err := fillCall(origin, mapping)
+		mappings = append(mappings, mapping)
+	}
+
+	scoped, err := pickForm(ctx, origin, mappings)
+	if err != nil {
+		return result, err
+	}
+	for _, mapping := range mappings {
+		js, err := fillCall(origin, scoped, mapping)
 		if err != nil {
 			return result, err
 		}
@@ -71,42 +90,59 @@ func (f *FormFiller) Fill(ctx context.Context, origin string) (*FillResult, erro
 	return result, nil
 }
 
+// pickForm marks the form to fill (see Fill) and reports whether there is
+// one; false means no form has a matching field.
+func pickForm(ctx context.Context, origin string, mappings []FieldMapping) (bool, error) {
+	fields := make([][2][]string, len(mappings))
+	for i, m := range mappings {
+		fields[i] = [2][]string{m.Selectors, m.Patterns}
+	}
+	args, err := json.Marshal([]any{origin, fields})
+	if err != nil {
+		return false, fmt.Errorf("encoding fields: %w", err)
+	}
+	status, err := chromedp.Run(ctx, chromedp.Evaluate[string](pickFormJS+".apply(null, "+string(args)+")"))
+	if err != nil {
+		return false, fmt.Errorf("could not look for the form: %w", err)
+	}
+	switch status {
+	case "moved":
+		return false, ErrPageChanged
+	case "tie":
+		return false, ErrAmbiguousForm
+	}
+	return status == "form", nil
+}
+
 // fillCall builds the fillFieldJS call for one mapping. JSON-encoded values
 // are valid JavaScript literals.
-func fillCall(origin string, m FieldMapping) (string, error) {
-	args, err := json.Marshal([]any{origin, m.Selectors, m.Patterns, m.ProfileValue})
+func fillCall(origin string, scoped bool, m FieldMapping) (string, error) {
+	args, err := json.Marshal([]any{origin, scoped, m.Selectors, m.Patterns, m.ProfileValue})
 	if err != nil {
 		return "", fmt.Errorf("encoding %s: %w", m.FieldType, err)
 	}
 	return fillFieldJS + ".apply(null, " + string(args) + ")", nil
 }
 
-// fillFieldJS fills one field and returns "filled", "none" (no usable field),
-// or "moved" (the page is no longer on origin). It runs as one script, so the
-// page can't navigate between the origin check and the fill.
-//
-// The field is the first visible, editable one not already filled that
-// matches a selector (in order), or else whose name, id, placeholder or label
-// contains a pattern. Filled fields are marked, so a later mapping can't
-// overwrite them (an address selector also matches "email_address"). The
-// value is set directly and input/change events fired, as typing would.
-const fillFieldJS = `(function(origin, selectors, patterns, value) {
-	if (location.origin !== origin) return "moved";
+// findFieldJS defines find(root, selectors, patterns), shared by the scripts
+// below. It returns the first visible, editable field in root not already
+// filled that matches a selector (in order), or else whose name, id,
+// placeholder or label contains a pattern; null if there is none.
+const findFieldJS = `
 	function usable(el) {
 		return el.offsetParent !== null && !el.disabled && !el.readOnly &&
 			!el.hasAttribute('data-eraser-filled') &&
 			!/^(hidden|submit|button|reset|checkbox|radio|file|image)$/i.test(el.type || '');
 	}
-	var target = null;
-	for (var i = 0; i < selectors.length && !target; i++) {
-		var els = document.querySelectorAll(selectors[i]);
-		for (var j = 0; j < els.length; j++) {
-			if (usable(els[j])) { target = els[j]; break; }
+	function find(root, selectors, patterns) {
+		for (var i = 0; i < selectors.length; i++) {
+			var els = root.querySelectorAll(selectors[i]);
+			for (var j = 0; j < els.length; j++) {
+				if (usable(els[j])) return els[j];
+			}
 		}
-	}
-	if (!target) {
-		var fields = document.querySelectorAll('input, select, textarea');
-		search: for (var k = 0; k < fields.length; k++) {
+		var fields = root.querySelectorAll('input, select, textarea');
+		for (var k = 0; k < fields.length; k++) {
 			var el = fields[k];
 			if (!usable(el)) continue;
 			var label = '';
@@ -116,10 +152,50 @@ const fillFieldJS = `(function(origin, selectors, patterns, value) {
 			}
 			var text = [el.name, el.id, el.placeholder, label].join(' ').toLowerCase();
 			for (var p = 0; p < patterns.length; p++) {
-				if (text.indexOf(patterns[p]) !== -1) { target = el; break search; }
+				if (text.indexOf(patterns[p]) !== -1) return el;
 			}
 		}
+		return null;
 	}
+`
+
+// pickFormJS scores each form by how many of the fields ([selectors,
+// patterns] pairs) it has, and marks the best one with data-eraser-form.
+// Returns "form", "page" (no form has any), "tie", or "moved" (the page is
+// no longer on origin).
+const pickFormJS = `(function(origin, fields) {
+	if (location.origin !== origin) return "moved";` + findFieldJS + `
+	var best = null, bestScore = 0, tie = false;
+	for (var i = 0; i < document.forms.length; i++) {
+		var form = document.forms[i], score = 0;
+		for (var f = 0; f < fields.length; f++) {
+			if (find(form, fields[f][0], fields[f][1])) score++;
+		}
+		if (score > bestScore) { best = form; bestScore = score; tie = false; }
+		else if (score > 0 && score === bestScore) tie = true;
+	}
+	if (!best) return "page";
+	if (tie) return "tie";
+	best.setAttribute('data-eraser-form', '1');
+	return "form";
+})`
+
+// fillFieldJS fills one field and returns "filled", "none" (no usable field),
+// or "moved" (the page is no longer on origin, or the picked form is gone).
+// It runs as one script, so the page can't navigate between the origin check
+// and the fill. When scoped, it looks only inside the form pickFormJS marked.
+//
+// Filled fields are marked, so a later mapping can't overwrite them (an
+// address selector also matches "email_address"). The value is set directly
+// and input/change events fired, as typing would.
+const fillFieldJS = `(function(origin, scoped, selectors, patterns, value) {
+	if (location.origin !== origin) return "moved";` + findFieldJS + `
+	var root = document;
+	if (scoped) {
+		root = document.querySelector('form[data-eraser-form]');
+		if (!root) return "moved";
+	}
+	var target = find(root, selectors, patterns);
 	if (!target) return "none";
 
 	if (target.tagName === 'SELECT') {

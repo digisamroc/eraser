@@ -1,0 +1,82 @@
+# Security
+
+Eraser handles the data it exists to protect: your name, contact details,
+and optionally your address, phone, and date of birth, plus app passwords for
+your mailbox. This document describes what it protects, against whom, and
+what it doesn't cover.
+
+## What's at stake
+
+| Asset | Where it lives |
+|-------|----------------|
+| Profile (name, email, address, phone, DOB) | `~/.eraser/config.yaml` (0600) |
+| SMTP and IMAP app passwords | `~/.eraser/config.yaml` (0600) |
+| Send history, broker replies (bodies capped at 64 KB) | `~/.eraser/history.db` |
+| Screenshots of filled forms | `~/.eraser/screenshots/` (0700 folder, 0600 files) |
+
+## Threats and mitigations
+
+**Sending your data to the wrong people.**
+Broker contacts come from the California CPPA registry, where brokers register
+their own addresses (`cmd/registry-import`). Personal-mailbox domains (Gmail,
+Outlook, …) are rejected, and manual additions must cite a source. Emails
+contain only your name and email unless you opt in to more, globally or per
+broker (`options.disclose`, per-broker `disclose`).
+
+**Spoofed "broker" email.**
+A reply only counts as a broker's if your mail provider verified it: the
+topmost `Authentication-Results` header must show DMARC pass, or a DKIM pass
+aligned with the From domain. Lower headers, which a sender can forge, are
+ignored. Links in unverified mail are never extracted, and unverified mail
+can't change a broker's status or remove a broker via a fake bounce. Replies
+are also matched to your requests by `In-Reply-To` against Message-IDs that
+only the broker saw.
+
+**Malicious or redirected web pages (`fill`, `confirm`).**
+A page must be https and belong to the broker (`broker.OwnsURL`). `fill`
+checks it before navigating, after the page loads (catching redirects), after
+a CAPTCHA wait, and before submitting. `confirm` checks every redirect hop.
+Only a submit button inside the filled form is clicked. Chrome always runs with
+its sandbox.
+
+**Malicious websites attacking the local web UI.**
+The UI listens only on `127.0.0.1`. Requests whose Host header isn't
+`localhost:PORT` or `127.0.0.1:PORT` are refused, which blocks DNS rebinding.
+Cross-origin state-changing requests are rejected
+(`http.CrossOriginProtection`). Stored passwords are never written into pages.
+
+**Compromised third-party code.**
+The web UI loads no external scripts, styles, or fonts, and the CSP forbids
+them. htmx is vendored and verified against the npm release, and CSS is built
+with a pinned, checksum-verified Tailwind CLI. CI runs `govulncheck` (failing on
+any reachable vulnerability) and `gitleaks`.
+
+**Reading your mailbox more than needed.**
+Mailboxes are opened read-only. Only envelopes are fetched for recent mail, and
+full bodies are downloaded only for broker messages. Nothing is marked read.
+
+## Known limitations
+
+- **Other local users and processes** can reach the web UI on
+  `127.0.0.1:PORT` while it runs; there's no login. Don't run `eraser serve` on
+  a shared machine.
+- **Inline scripts:** the web UI's CSP still allows `'unsafe-inline'` scripts
+  (templates use inline handlers). Output escaping by `html/template` is the
+  main XSS defense.
+- **Plain-text secrets on disk:** app passwords are stored in
+  `config.yaml`, protected only by file permissions. Use app passwords, never
+  your main password, and revoke them if the file is exposed.
+- **Archiving without IMAP MOVE:** the fallback (COPY + EXPUNGE) also removes
+  other messages already flagged `\Deleted` in that folder. Gmail and Outlook
+  support MOVE.
+- **Registry accuracy:** addresses are what brokers registered; some may be
+  stale. The 15 `form-only` overrides come from one user's report (upstream PR
+  #29) and are cited as such.
+- **Malware running as your user** can read everything above; that's out of
+  scope.
+
+## Reporting a vulnerability
+
+Please report security problems privately using GitHub's "Report a
+vulnerability" (private security advisory) on this repository, not in a
+public issue. Include steps to reproduce and the version or commit.

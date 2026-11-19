@@ -294,6 +294,26 @@ Web "Send all" now applies the same rules (Phase 5B, item 6).
 
 ## Phase 7: Docs and cleanup
 
+Status: done.
+- README: claims match reality (SMTP only, ~600 registered brokers, no
+  unverifiable compliance rates or competitor table). The GitHub Actions
+  section is replaced by a local monthly cron, since Actions would put PII
+  and mail passwords in repository secrets. There's a new "What Leaves Your
+  Computer" table. Clone URLs point to this fork.
+- CLAUDE.md rewritten around the invariants each phase established;
+  `SECURITY.md` added (threat model, known limitations, reporting).
+- `add-broker` and `cleanup-bounces --remove` write `add` / `exclude` entries
+  to `data/brokers.manual.yaml` (comments kept) and update
+  `data/brokers.yaml`; regeneration then produces the same file. Exclusions
+  can cite local `evidence` (a bounce) instead of a URL. `--remove` only acts
+  on bounces your provider verified.
+- Removed dead code (unused broker DB mutators, classifier helpers, history
+  query, `templates/setup.html`), plus the web UI's "750+" and Resend text.
+- Lint debt cleared: the whole repo passes golangci-lint, so CI and the
+  pre-commit hook lint everything (no changed-lines mode). Real fixes along
+  the way: task IDs parse strictly (404 instead of silently becoming task 0),
+  and `errors.Is` replaces a `!=` comparison on a context error.
+
 1. Make the README match reality: SMTP only (or bring other providers back),
    no automated-send Actions workflow (or a safe one), the real broker count and
    where it comes from, how the data is checked, and a privacy model section.

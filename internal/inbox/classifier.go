@@ -186,13 +186,6 @@ var (
 		*regexp.MustCompile(`(?i)response\s+to\s+your\s+email`),
 	}
 
-	// Test email patterns (should be skipped from review)
-	testEmailPatterns = []regexp.Regexp{
-		*regexp.MustCompile(`(?i)eraser\s+test\s+email`),
-		*regexp.MustCompile(`(?i)test\s+email\s+from\s+eraser`),
-		*regexp.MustCompile(`(?i)this\s+is\s+a\s+test\s+email`),
-	}
-
 	// Subject-specific rejection patterns
 	subjectRejectionPatterns = []regexp.Regexp{
 		*regexp.MustCompile(`(?i)not\s+found`),
@@ -274,15 +267,6 @@ func ClassifyResponse(email *Email) ClassifiedResponse {
 
 	// Also check subject
 	subject := strings.ToLower(email.Subject)
-
-	// Check if this is a test email (from Eraser itself)
-	if email.Authenticated && isTestEmail(subject, content) {
-		result.Type = ResponseSuccess
-		result.Confidence = 1.0
-		result.Reason = "Test email from Eraser - email configuration verified"
-		result.NeedsReview = false
-		return result
-	}
 
 	// Check if this is a bounce email FIRST (before other classification)
 	if isBounceEmail(email, subject, content) {
@@ -615,16 +599,6 @@ func SummarizeResponses(responses []ClassifiedResponse) Summary {
 	}
 
 	return summary
-}
-
-// isTestEmail checks if an email is a test email from Eraser
-func isTestEmail(subject, content string) bool {
-	for _, pattern := range testEmailPatterns {
-		if pattern.MatchString(subject) || pattern.MatchString(content) {
-			return true
-		}
-	}
-	return false
 }
 
 // isBounceEmail checks if an email is a bounce/undeliverable notification

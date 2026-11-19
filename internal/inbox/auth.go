@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/eraser-privacy/eraser/internal/config"
 	"golang.org/x/net/publicsuffix"
 )
 
@@ -13,6 +14,33 @@ var (
 	authProperty = regexp.MustCompile(`header\.(from|d|i)\s*=\s*@?([a-z0-9.-]+)`)
 )
 
+// AuthServ identifies the Authentication-Results header written by the
+// user's own mail provider. The zero value identifies nothing, so no mail
+// is authenticated.
+type AuthServ struct {
+	ID   string // authserv-id the header must start with, lowercase
+	NoID bool   // the provider writes no authserv-id (Microsoft)
+}
+
+// Known reports whether senders can be verified at all.
+func (a AuthServ) Known() bool { return a.ID != "" || a.NoID }
+
+// AuthServFor works out which header to trust from the inbox settings:
+// inbox.authserv_id if set, otherwise Gmail's or Microsoft's own format.
+func AuthServFor(c config.InboxConfig) AuthServ {
+	if c.AuthServID != "" {
+		return AuthServ{ID: strings.ToLower(strings.TrimSpace(c.AuthServID))}
+	}
+	server := strings.ToLower(c.Server)
+	switch {
+	case c.Provider == "gmail" || server == "imap.gmail.com":
+		return AuthServ{ID: "mx.google.com"}
+	case c.Provider == "outlook" || server == "outlook.office365.com" || server == "imap-mail.outlook.com":
+		return AuthServ{NoID: true}
+	}
+	return AuthServ{}
+}
+
 // Authenticated reports whether an Authentication-Results header value shows
 // that a message really comes from fromDomain: a DMARC pass for that From
 // domain, or a DKIM pass whose signing domain is aligned with it (same
@@ -20,16 +48,33 @@ var (
 // because it checks the envelope sender, not the From address users see.
 //
 // Pass only the topmost Authentication-Results header: it is added by the
-// user's own mail provider. Headers further down can be written by anyone.
-func Authenticated(header, fromDomain string) bool {
+// user's own mail provider. Headers further down can be written by anyone, and
+// so can the topmost one if the provider adds none, so it must also carry the
+// provider's authserv-id (as).
+func Authenticated(header, fromDomain string, as AuthServ) bool {
 	fromDomain = strings.ToLower(strings.TrimSpace(fromDomain))
-	if fromDomain == "" || header == "" {
+	if fromDomain == "" || header == "" || !as.Known() {
 		return false
 	}
 	// Comments can contain arbitrary text, including "dmarc=pass".
 	header = authComment.ReplaceAllString(strings.ToLower(header), " ")
 
-	for _, part := range strings.Split(header, ";") {
+	parts := strings.Split(header, ";")
+	// The header starts with the authserv-id (and an optional version) unless
+	// the provider omits it, as Microsoft does; then it starts with a result.
+	first := strings.TrimSpace(parts[0])
+	if as.NoID {
+		if !strings.Contains(first, "=") {
+			return false
+		}
+	} else {
+		if fields := strings.Fields(first); len(fields) == 0 || fields[0] != as.ID {
+			return false
+		}
+		parts = parts[1:]
+	}
+
+	for _, part := range parts {
 		m := authResult.FindStringSubmatch(part)
 		if m == nil || m[2] != "pass" {
 			continue

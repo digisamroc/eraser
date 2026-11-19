@@ -82,6 +82,7 @@ type BrokerResponse struct {
 	// (DMARC or aligned DKIM). Links from unauthenticated emails are never
 	// stored or acted on, including when a stored email is reclassified.
 	Authenticated bool
+	MessageID     string // the email's Message-ID; identifies the email a row came from
 }
 
 // PendingTask represents a task that needs human intervention
@@ -154,6 +155,7 @@ func (s *Store) migrate() error {
 	// table) doesn't need it; the CREATE TABLE below covers new databases.
 	_, _ = s.db.Exec(`ALTER TABLE broker_responses ADD COLUMN email_body TEXT`)
 	_, _ = s.db.Exec(`ALTER TABLE broker_responses ADD COLUMN authenticated INTEGER DEFAULT 0`)
+	_, _ = s.db.Exec(`ALTER TABLE broker_responses ADD COLUMN message_id TEXT`)
 
 	query := `
 	CREATE TABLE IF NOT EXISTS removal_requests (
@@ -191,12 +193,14 @@ func (s *Store) migrate() error {
 		received_at DATETIME,
 		processed_at DATETIME,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		authenticated INTEGER DEFAULT 0
+		authenticated INTEGER DEFAULT 0,
+		message_id TEXT
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_br_broker_id ON broker_responses(broker_id);
 	CREATE INDEX IF NOT EXISTS idx_br_response_type ON broker_responses(response_type);
 	CREATE INDEX IF NOT EXISTS idx_br_needs_review ON broker_responses(needs_review);
+	CREATE INDEX IF NOT EXISTS idx_br_message_id ON broker_responses(broker_id, message_id);
 
 	-- Pending tasks table (for CAPTCHAs, manual forms, etc.)
 	CREATE TABLE IF NOT EXISTS pending_tasks (
@@ -462,14 +466,14 @@ func boolInt(b bool) int {
 func (s *Store) AddBrokerResponse(resp *BrokerResponse) error {
 	query := `
 	INSERT INTO broker_responses (broker_id, broker_name, response_type, email_from, email_subject, email_body,
-		form_url, confirm_url, confidence, needs_review, received_at, processed_at, created_at, authenticated)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		form_url, confirm_url, confidence, needs_review, received_at, processed_at, created_at, authenticated, message_id)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := s.db.Exec(query,
 		resp.BrokerID, resp.BrokerName, resp.ResponseType, resp.EmailFrom, resp.EmailSubject, capBody(resp.EmailBody),
 		resp.FormURL, resp.ConfirmURL, resp.Confidence, boolInt(resp.NeedsReview),
-		resp.ReceivedAt, time.Now(), time.Now(), boolInt(resp.Authenticated),
+		resp.ReceivedAt, time.Now(), time.Now(), boolInt(resp.Authenticated), resp.MessageID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert broker response: %w", err)
@@ -484,18 +488,18 @@ func (s *Store) AddBrokerResponse(resp *BrokerResponse) error {
 }
 
 const brokerResponseColumns = `id, broker_id, broker_name, response_type, email_from, email_subject, email_body,
-		form_url, confirm_url, confidence, needs_review, received_at, processed_at, created_at, authenticated`
+		form_url, confirm_url, confidence, needs_review, received_at, processed_at, created_at, authenticated, message_id`
 
 // scanBrokerResponse reads one row selected with brokerResponseColumns.
 func scanBrokerResponse(scanner interface{ Scan(...any) error }) (BrokerResponse, error) {
 	var r BrokerResponse
 	var needsReview, authenticated sql.NullInt64
-	var emailFrom, emailSubject, emailBody, formURL, confirmURL sql.NullString
+	var emailFrom, emailSubject, emailBody, formURL, confirmURL, messageID sql.NullString
 	var confidence sql.NullFloat64
 	var receivedAt, processedAt, createdAt any
 
 	if err := scanner.Scan(&r.ID, &r.BrokerID, &r.BrokerName, &r.ResponseType, &emailFrom, &emailSubject, &emailBody,
-		&formURL, &confirmURL, &confidence, &needsReview, &receivedAt, &processedAt, &createdAt, &authenticated); err != nil {
+		&formURL, &confirmURL, &confidence, &needsReview, &receivedAt, &processedAt, &createdAt, &authenticated, &messageID); err != nil {
 		return r, err
 	}
 	r.EmailFrom, r.EmailSubject, r.EmailBody = emailFrom.String, emailSubject.String, emailBody.String
@@ -503,6 +507,7 @@ func scanBrokerResponse(scanner interface{ Scan(...any) error }) (BrokerResponse
 	r.Confidence = confidence.Float64
 	r.NeedsReview = needsReview.Int64 == 1
 	r.Authenticated = authenticated.Int64 == 1
+	r.MessageID = messageID.String
 
 	var err error
 	if r.ReceivedAt, err = parseDBTime(receivedAt); err != nil {
@@ -535,18 +540,49 @@ func (s *Store) queryBrokerResponses(query string, args ...any) ([]BrokerRespons
 	return responses, rows.Err()
 }
 
-func (s *Store) FindBrokerResponseBySubject(brokerID, subject string) (*BrokerResponse, error) {
-	query := `SELECT ` + brokerResponseColumns + `
-		FROM broker_responses WHERE broker_id = ? AND email_subject = ? LIMIT 1`
+// FindBrokerResponse finds the stored response for an email: the row with
+// its Message-ID, or else a row with the same subject and no Message-ID
+// (stored by older versions, or from an email without one).
+func (s *Store) FindBrokerResponse(brokerID, messageID, subject string) (*BrokerResponse, error) {
+	queries := []struct {
+		where string
+		args  []any
+	}{
+		{`broker_id = ? AND message_id = ?`, []any{brokerID, messageID}},
+		{`broker_id = ? AND email_subject = ? AND (message_id IS NULL OR message_id = '')`, []any{brokerID, subject}},
+	}
+	if messageID == "" {
+		queries = queries[1:]
+	}
+	for _, q := range queries {
+		r, err := scanBrokerResponse(s.db.QueryRow(`SELECT `+brokerResponseColumns+`
+			FROM broker_responses WHERE `+q.where+` ORDER BY id LIMIT 1`, q.args...))
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to find broker response: %w", err)
+		}
+		return &r, nil
+	}
+	return nil, nil
+}
 
-	r, err := scanBrokerResponse(s.db.QueryRow(query, brokerID, subject))
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
+// ReplaceBrokerResponse overwrites every email-derived field of a stored
+// response, so its body, links and authenticated flag always come from the
+// same email.
+func (s *Store) ReplaceBrokerResponse(id int64, resp *BrokerResponse) error {
+	_, err := s.db.Exec(`UPDATE broker_responses SET broker_name = ?, response_type = ?, email_from = ?,
+		email_subject = ?, email_body = ?, form_url = ?, confirm_url = ?, confidence = ?, needs_review = ?,
+		received_at = ?, processed_at = ?, authenticated = ?, message_id = ? WHERE id = ?`,
+		resp.BrokerName, resp.ResponseType, resp.EmailFrom, resp.EmailSubject, capBody(resp.EmailBody),
+		resp.FormURL, resp.ConfirmURL, resp.Confidence, boolInt(resp.NeedsReview),
+		resp.ReceivedAt, time.Now(), boolInt(resp.Authenticated), resp.MessageID, id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find broker response: %w", err)
+		return fmt.Errorf("failed to replace broker response: %w", err)
 	}
-	return &r, nil
+	resp.ID = id
+	return nil
 }
 
 // UpdateBrokerResponseClassification updates the classification fields of a response
@@ -557,14 +593,6 @@ func (s *Store) UpdateBrokerResponseClassification(id int64, responseType string
 	_, err := s.db.Exec(query, responseType, formURL, confirmURL, confidence, boolInt(needsReview), boolInt(authenticated), time.Now(), id)
 	if err != nil {
 		return fmt.Errorf("failed to update broker response: %w", err)
-	}
-	return nil
-}
-
-// UpdateBrokerResponseBody stores (capped) body text for a response
-func (s *Store) UpdateBrokerResponseBody(id int64, body string) error {
-	if _, err := s.db.Exec(`UPDATE broker_responses SET email_body = ? WHERE id = ?`, capBody(body), id); err != nil {
-		return fmt.Errorf("failed to update broker response body: %w", err)
 	}
 	return nil
 }

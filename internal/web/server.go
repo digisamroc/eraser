@@ -753,6 +753,20 @@ func (s *Server) newInboxMonitor() *inbox.Monitor {
 	return m
 }
 
+// writeUnverifiedNotice explains, in a scan result, that without a known
+// authserv-id no email counts as verified.
+func writeUnverifiedNotice(w http.ResponseWriter, m *inbox.Monitor) {
+	if m.VerifiesSenders() {
+		return
+	}
+	_, _ = w.Write([]byte(`
+		<div class="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded mb-2">
+			<strong>Can't verify senders.</strong> Set <code>inbox.authserv_id</code> in config.yaml
+			(see config.example.yaml). Until then, links in broker email are ignored.
+		</div>
+	`))
+}
+
 // deliverer builds the shared send path from the current config.
 func (s *Server) deliverer() (sendplan.Deliverer, config.Disclosure, error) {
 	if s.historyStore == nil {
@@ -1882,6 +1896,7 @@ func (s *Server) handleAPIInboxScan(w http.ResponseWriter, r *http.Request) {
 
 	// Create inbox monitor
 	monitor := s.newInboxMonitor()
+	writeUnverifiedNotice(w, monitor)
 
 	// Connect to IMAP
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
@@ -2011,6 +2026,7 @@ func (s *Server) handleAPIInboxRescan(w http.ResponseWriter, r *http.Request) {
 
 	// Create inbox monitor
 	monitor := s.newInboxMonitor()
+	writeUnverifiedNotice(w, monitor)
 
 	// Connect to IMAP with longer timeout for full rescan
 	ctx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
@@ -2201,29 +2217,26 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			// Update database records with missing bodies
+			// Fill in records with missing bodies. Record replaces the whole
+			// row, so the body and its authenticated flag come from the same
+			// email.
 			for _, resp := range responses {
 				if resp.EmailBody != "" {
 					continue // Already has body
 				}
-				key := resp.BrokerID + "|" + resp.EmailSubject
-				if email, ok := fetched[key]; ok {
-					body := email.Body
-					if body == "" {
-						body = email.HTMLBody
-					}
-					err := s.historyStore.UpdateBrokerResponseBody(resp.ID, body)
-					if err == nil {
-						bodiesUpdated++
-						// Update the in-memory response too for reclassification
-						for i := range responses {
-							if responses[i].ID == resp.ID {
-								responses[i].EmailBody = body
-								responses[i].Authenticated = email.Authenticated
-								break
-							}
-						}
-					}
+				email, ok := fetched[resp.BrokerID+"|"+resp.EmailSubject]
+				if !ok {
+					continue
+				}
+				if _, err := inbox.Record(s.historyStore, &email, inbox.ClassifyResponse(&email)); err != nil {
+					log.Printf("Warning: failed to store body for response %d: %v", resp.ID, err)
+					continue
+				}
+				bodiesUpdated++
+			}
+			if bodiesUpdated > 0 {
+				if reloaded, err := s.historyStore.GetAllBrokerResponses(); err == nil {
+					responses = reloaded
 				}
 			}
 			log.Printf("Updated %d records with email bodies from IMAP", bodiesUpdated)

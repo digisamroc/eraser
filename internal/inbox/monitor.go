@@ -1,11 +1,14 @@
 package inbox
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
+	"net/textproto"
 	"strings"
 	"time"
 
@@ -32,6 +35,7 @@ type Monitor struct {
 	brokers    map[string]broker.Broker // registered email/website domain -> broker
 	brokerByID map[string]broker.Broker
 	sentIDs    map[string]string // Message-ID of a sent request -> broker ID
+	authServ   AuthServ          // identifies the provider's Authentication-Results header
 	tlsConfig  *tls.Config       // nil uses the system roots; set by tests
 }
 
@@ -50,9 +54,15 @@ type Email struct {
 	BrokerName string // Matched broker name (if found)
 	Folder     string // Mailbox the message was fetched from; UIDs are per-folder
 	InReplyTo  string
+	References []string // Message-IDs from the References header
 	// Authenticated is true when the user's mail provider verified the sender
 	// (see Authenticated). Links are only extracted from authenticated email.
 	Authenticated bool
+
+	// Delivery report parts (bounces): the Message-ID of the returned
+	// original, and the recipients the report says failed (lowercase).
+	ReturnedMessageIDs []string
+	FailedRecipients   []string
 }
 
 // NewMonitor creates a new inbox monitor. Personal mailbox domains (Gmail,
@@ -62,6 +72,7 @@ func NewMonitor(cfg config.InboxConfig, brokerList []broker.Broker) *Monitor {
 		config:     cfg,
 		brokers:    make(map[string]broker.Broker),
 		brokerByID: make(map[string]broker.Broker),
+		authServ:   AuthServFor(cfg),
 	}
 	for _, b := range brokerList {
 		m.brokerByID[b.ID] = b
@@ -74,6 +85,11 @@ func NewMonitor(cfg config.InboxConfig, brokerList []broker.Broker) *Monitor {
 	}
 	return m
 }
+
+// VerifiesSenders reports whether the monitor knows which
+// Authentication-Results header is the provider's. Without it no email is
+// authenticated: links are ignored and bounces can't remove brokers.
+func (m *Monitor) VerifiesSenders() bool { return m.authServ.Known() }
 
 // SetSentMessageIDs supplies Message-IDs of sent requests (from history), so
 // a reply can be matched to its broker by In-Reply-To even when it comes from
@@ -245,7 +261,7 @@ func (m *Monitor) fetch(ctx context.Context, folder string, criteria *imap.Searc
 	err = m.uidFetch(keptUIDs, []imap.FetchItem{section.FetchItem(), imap.FetchUid}, func(msg *imap.Message) {
 		if e := byUID[msg.Uid]; e != nil {
 			if r := msg.GetBody(section); r != nil {
-				parseBody(e, r)
+				parseBody(e, r, m.authServ)
 			}
 		}
 	})
@@ -297,33 +313,79 @@ func emailFromEnvelope(msg *imap.Message) *Email {
 	return e
 }
 
-// parseBody fills in the authentication result and text parts.
-func parseBody(e *Email, r io.Reader) {
+// maxPartBytes bounds how much of one MIME part is read.
+const maxPartBytes = 1 << 20
+
+// parseBody fills in the authentication result, text parts, and, for
+// delivery reports, the returned message's ID and the failed recipients.
+func parseBody(e *Email, r io.Reader, as AuthServ) {
 	mr, err := mail.CreateReader(r)
 	if err != nil {
 		return // unparseable: stays unauthenticated with no body
 	}
 	// Header.Get returns the first (topmost) occurrence: the one added by the
 	// user's own provider. Lower ones can be forged by the sender.
-	e.Authenticated = Authenticated(mr.Header.Get("Authentication-Results"), e.FromDomain)
+	e.Authenticated = Authenticated(mr.Header.Get("Authentication-Results"), e.FromDomain, as)
+	if refs, err := mr.Header.MsgIDList("References"); err == nil {
+		for _, id := range refs {
+			e.References = append(e.References, "<"+id+">")
+		}
+	}
 
 	for {
 		p, err := mr.NextPart()
 		if err != nil {
 			break // io.EOF or a malformed part
 		}
-		h, ok := p.Header.(*mail.InlineHeader)
+		h, ok := p.Header.(interface {
+			ContentType() (string, map[string]string, error)
+		})
 		if !ok {
 			continue
 		}
 		ct, _, _ := h.ContentType()
-		body, _ := io.ReadAll(p.Body)
-		if strings.HasPrefix(ct, "text/plain") && e.Body == "" {
+		body, _ := io.ReadAll(io.LimitReader(p.Body, maxPartBytes))
+		_, inline := p.Header.(*mail.InlineHeader)
+		switch {
+		case inline && strings.HasPrefix(ct, "text/plain") && e.Body == "":
 			e.Body = string(body)
-		} else if strings.HasPrefix(ct, "text/html") && e.HTMLBody == "" {
+		case inline && strings.HasPrefix(ct, "text/html") && e.HTMLBody == "":
 			e.HTMLBody = string(body)
+		case ct == "message/delivery-status":
+			e.FailedRecipients = append(e.FailedRecipients, failedRecipients(body)...)
+		case ct == "message/rfc822" || ct == "text/rfc822-headers" || ct == "message/rfc822-headers":
+			if id := returnedMessageID(body); id != "" {
+				e.ReturnedMessageIDs = append(e.ReturnedMessageIDs, id)
+			}
 		}
 	}
+}
+
+// failedRecipients reads the Final-Recipient fields of a delivery-status
+// report (RFC 3464), e.g. "Final-Recipient: rfc822; privacy@acme.example".
+func failedRecipients(report []byte) []string {
+	var out []string
+	for _, line := range strings.Split(string(report), "\n") {
+		name, value, ok := strings.Cut(line, ":")
+		if !ok || !strings.EqualFold(strings.TrimSpace(name), "Final-Recipient") {
+			continue
+		}
+		if _, addr, ok := strings.Cut(value, ";"); ok {
+			if addr = strings.ToLower(strings.TrimSpace(addr)); addr != "" {
+				out = append(out, addr)
+			}
+		}
+	}
+	return out
+}
+
+// returnedMessageID reads the Message-ID from a returned message or its headers.
+func returnedMessageID(raw []byte) string {
+	h, err := textproto.NewReader(bufio.NewReader(bytes.NewReader(raw))).ReadMIMEHeader()
+	if err != nil && len(h) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(h.Get("Message-Id"))
 }
 
 // Envelope-level bounce hints. Narrower than the classifier's list (no

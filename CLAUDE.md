@@ -53,9 +53,13 @@ Each of these closes a real bug or leak. Tests cover them.
   https `source_url` (exclusions may use `evidence` instead).
 - **Inbox:** fetch envelopes first, then `BODY.PEEK[]` bodies only for broker
   matches; open mailboxes read-only. `Email.Authenticated` comes from the
-  topmost `Authentication-Results` header only (DMARC, or aligned DKIM).
-  Unauthenticated mail yields no URLs and doesn't change pipeline status.
-  Store responses with `inbox.Record`. UIDs are per-folder.
+  topmost `Authentication-Results` header only, and only if it carries the
+  provider's authserv-id (`inbox.AuthServFor`; unknown provider = nothing
+  authenticated). DMARC, or aligned DKIM. Unauthenticated mail yields no URLs
+  and doesn't change pipeline status. Store responses with `inbox.Record`,
+  which replaces a row in full (body, links and flag from one email).
+  Bounces count only via `inbox.VerifyBounce` (refers to a sent Message-ID).
+  UIDs are per-folder.
 - **fill/confirm:** pages must pass `broker.OwnsURL` (https, broker's
   organizational domain or under its registered opt-out URL). `fill` checks
   before navigating, after load, after CAPTCHA waits and before submitting.

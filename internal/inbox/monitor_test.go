@@ -120,6 +120,8 @@ func testTLS(t *testing.T) (*tls.Config, *x509.CertPool) {
 
 type imapFixture struct {
 	monitor *Monitor
+	cfg     config.InboxConfig
+	tls     *tls.Config
 	user    backend.User
 	log     *fetchLog
 	uids    map[string]uint32 // message label -> UID in INBOX
@@ -196,20 +198,28 @@ func newIMAPFixture(t *testing.T) *imapFixture {
 
 	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
 	port, _ := strconv.Atoi(portStr)
-	m := NewMonitor(config.InboxConfig{Server: "127.0.0.1", Port: port, Email: "username", Password: "password", Folder: "INBOX"},
-		[]broker.Broker{
-			{ID: "acme", Name: "Acme", Email: "privacy@acme.example", Website: "https://www.acme.example"},
-			{ID: "beta", Name: "Beta", Email: "privacy@beta.example"},
-			{ID: "freemail", Name: "Freemail Broker", Email: "somebroker@gmail.com"}, // must never match gmail senders
-		})
-	m.tlsConfig = &tls.Config{RootCAs: pool, ServerName: "127.0.0.1", MinVersion: tls.VersionTLS12}
+	f.cfg = config.InboxConfig{Server: "127.0.0.1", Port: port, Email: "username", Password: "password", Folder: "INBOX",
+		AuthServID: "mx.test"}
+	f.tls = &tls.Config{RootCAs: pool, ServerName: "127.0.0.1", MinVersion: tls.VersionTLS12}
+	f.monitor = f.connect(t, f.cfg)
+	return f
+}
+
+// connect opens a monitor on the fixture's server with the given settings.
+func (f *imapFixture) connect(t *testing.T, cfg config.InboxConfig) *Monitor {
+	t.Helper()
+	m := NewMonitor(cfg, []broker.Broker{
+		{ID: "acme", Name: "Acme", Email: "privacy@acme.example", Website: "https://www.acme.example"},
+		{ID: "beta", Name: "Beta", Email: "privacy@beta.example"},
+		{ID: "freemail", Name: "Freemail Broker", Email: "somebroker@gmail.com"}, // must never match gmail senders
+	})
+	m.tlsConfig = f.tls
 	m.SetSentMessageIDs(map[string]string{"<sent1@me.example>": "beta"})
 	if err := m.Connect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = m.Disconnect() })
-	f.monitor = m
-	return f
+	return m
 }
 
 func byUID(emails []Email) map[uint32]Email {
@@ -362,5 +372,91 @@ func TestMatchBroker(t *testing.T) {
 		if got := map[bool]string{true: b.ID, false: ""}[ok]; got != want {
 			t.Errorf("matchBroker(%q) = %q, want %q", domain, got, want)
 		}
+	}
+}
+
+// With no known authserv-id, the topmost Authentication-Results header could
+// be the sender's own, so nothing counts as verified.
+func TestFetchFailsClosedWithoutAuthServ(t *testing.T) {
+	f := newIMAPFixture(t)
+	cfg := f.cfg
+	cfg.AuthServID = ""
+	m := f.connect(t, cfg)
+	if m.VerifiesSenders() {
+		t.Fatal("VerifiesSenders() = true with no authserv-id")
+	}
+	emails, err := m.FetchBrokerEmails(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range emails {
+		if e.Authenticated {
+			t.Errorf("UID %d authenticated without a known authserv-id", e.UID)
+		}
+	}
+	if !f.monitor.VerifiesSenders() {
+		t.Error("VerifiesSenders() = false with authserv_id set")
+	}
+}
+
+const deliveryReport = "From: Mail Delivery Subsystem <mailer-daemon@googlemail.com>\r\n" +
+	"Authentication-Results: mx.test; dkim=pass header.d=googlemail.com\r\n" +
+	"To: me@example.com\r\n" +
+	"Subject: Delivery Status Notification (Failure)\r\n" +
+	"Message-ID: <dsn1@mx.google.com>\r\n" +
+	"In-Reply-To: <sent-acme@me.example>\r\n" +
+	"References: <sent-acme@me.example>\r\n" +
+	"MIME-Version: 1.0\r\n" +
+	"Content-Type: multipart/report; report-type=delivery-status; boundary=\"b1\"\r\n" +
+	"\r\n" +
+	"--b1\r\n" +
+	"Content-Type: text/plain; charset=UTF-8\r\n" +
+	"\r\n" +
+	"Address not found. Your message wasn't delivered to privacy@acme.example.\r\n" +
+	"--b1\r\n" +
+	"Content-Type: message/delivery-status\r\n" +
+	"\r\n" +
+	"Reporting-MTA: dns; googlemail.com\r\n" +
+	"\r\n" +
+	"Final-Recipient: rfc822; Privacy@Acme.example\r\n" +
+	"Action: failed\r\n" +
+	"Status: 5.1.1\r\n" +
+	"--b1\r\n" +
+	"Content-Type: message/rfc822\r\n" +
+	"\r\n" +
+	"Message-ID: <sent-acme@me.example>\r\n" +
+	"From: Me <me@example.com>\r\n" +
+	"To: privacy@acme.example\r\n" +
+	"Subject: Personal Data Removal Request\r\n" +
+	"\r\n" +
+	"Please delete my data.\r\n" +
+	"--b1--\r\n"
+
+func TestFetchBounceReadsDeliveryReport(t *testing.T) {
+	f := newIMAPFixture(t)
+	uid := addMessage(t, f.user, "INBOX", deliveryReport)
+
+	emails, err := f.monitor.FetchBounceEmails(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, ok := byUID(emails)[uid]
+	if !ok {
+		t.Fatal("delivery report not fetched as a bounce")
+	}
+	if !e.Authenticated {
+		t.Error("delivery report not authenticated")
+	}
+	if len(e.ReturnedMessageIDs) != 1 || e.ReturnedMessageIDs[0] != "<sent-acme@me.example>" {
+		t.Errorf("ReturnedMessageIDs = %q", e.ReturnedMessageIDs)
+	}
+	if len(e.FailedRecipients) != 1 || e.FailedRecipients[0] != "privacy@acme.example" {
+		t.Errorf("FailedRecipients = %q", e.FailedRecipients)
+	}
+	if len(e.References) != 1 || e.References[0] != "<sent-acme@me.example>" {
+		t.Errorf("References = %q", e.References)
+	}
+	if !strings.Contains(e.Body, "Address not found") {
+		t.Errorf("Body = %q", e.Body)
 	}
 }

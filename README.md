@@ -254,7 +254,9 @@ Running it on GitHub Actions instead would mean storing your personal details an
 
 - **Read-only.** Mailboxes are opened read-only. Nothing is marked as read, and nothing is moved unless you turn on `auto_archive`.
 - **Broker mail only.** For recent mail, only the sender and subject are fetched. Full message bodies are downloaded only for messages from a registered broker domain, or replies to one of your sent requests (matched by Message-ID). Personal mailbox domains like Gmail never count as brokers.
-- **Verified senders only.** Links are only taken from mail your provider verified as genuinely from that sender (DMARC, or aligned DKIM, in the `Authentication-Results` header). Anything else is saved for your review with its links dropped, and doesn't change a broker's status. A spoofed "broker" email can't feed a link to `fill` or `confirm`.
+- **Verified senders only.** Links are only taken from mail your provider verified as genuinely from that sender (DMARC, or aligned DKIM, in the `Authentication-Results` header your provider adds). Anything else is saved for your review with its links dropped, and doesn't change a broker's status. A spoofed "broker" email can't feed a link to `fill` or `confirm`.
+- **Your provider's header only.** Eraser knows Gmail's and Outlook's headers. For any other provider, set `inbox.authserv_id` (see `config.example.yaml`); until then no sender counts as verified.
+- **Real bounces only.** `cleanup-bounces --remove` only removes a broker for a verified bounce that refers to a request Eraser sent (by Message-ID). A forged "undeliverable" email can't remove a broker.
 - **Stored text is capped.** Broker reply text is stored locally (capped at 64 KB) only so replies can be reclassified later.
 
 If a broker replies that it needs more information to find you, the reply is flagged as "info required". You can then add a per-broker `disclose` override (see "What Gets Sent").

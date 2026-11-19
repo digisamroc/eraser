@@ -25,12 +25,20 @@ broker (`options.disclose`, per-broker `disclose`).
 
 **Spoofed "broker" email.**
 A reply only counts as a broker's if your mail provider verified it: the
-topmost `Authentication-Results` header must show DMARC pass, or a DKIM pass
-aligned with the From domain. Lower headers, which a sender can forge, are
-ignored. Links in unverified mail are never extracted, and unverified mail
-can't change a broker's status or remove a broker via a fake bounce. Replies
-are also matched to your requests by `In-Reply-To` against Message-IDs that
-only the broker saw.
+topmost `Authentication-Results` header must be your provider's (its
+authserv-id, e.g. `mx.google.com`) and show DMARC pass, or a DKIM pass aligned
+with the From domain. Lower headers, which a sender can forge, are ignored.
+Links in unverified mail are never extracted, and unverified mail can't change
+a broker's status. A stored reply's body, links and verification always come
+from the same email, and an unverified email never replaces a verified one.
+Replies are also matched to your requests by `In-Reply-To` against
+Message-IDs that only the broker saw.
+
+**Fake bounces.**
+`cleanup-bounces --remove` only removes a broker for a verified bounce that
+refers to a request Eraser sent, by its Message-ID, and names that broker's
+address if it lists recipients. Anyone can send authenticated mail from their
+own domain naming a broker, but not the Message-ID of your request.
 
 **Malicious or redirected web pages (`fill`, `confirm`).**
 A page must be https and belong to the broker (`broker.OwnsURL`). `fill`
@@ -66,6 +74,10 @@ full bodies are downloaded only for broker messages. Nothing is marked read.
 - **Plain-text secrets on disk:** app passwords are stored in
   `config.yaml`, protected only by file permissions. Use app passwords, never
   your main password, and revoke them if the file is exposed.
+- **Sender verification depends on your provider.** It needs the provider to
+  add an `Authentication-Results` header and Eraser to know its authserv-id.
+  Gmail and Outlook are built in; for others set `inbox.authserv_id`, or every
+  email is treated as unverified.
 - **Archiving without IMAP MOVE:** the fallback (COPY + EXPUNGE) also removes
   other messages already flagged `\Deleted` in that folder. Gmail and Outlook
   support MOVE.

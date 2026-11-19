@@ -921,8 +921,11 @@ func (s *Store) GetPendingTaskByID(id int64) (*PendingTask, error) {
 	return &t, nil
 }
 
-// CompletePendingTask marks a task as completed
+// CompletePendingTask closes a task as "completed" or "skipped".
 func (s *Store) CompletePendingTask(id int64, status string) error {
+	if status != "completed" && status != "skipped" {
+		return fmt.Errorf("invalid task status %q", status)
+	}
 	query := `UPDATE pending_tasks SET status = ?, completed_at = ? WHERE id = ?`
 	_, err := s.db.Exec(query, status, time.Now(), id)
 	if err != nil {

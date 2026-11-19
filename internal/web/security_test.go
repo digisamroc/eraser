@@ -289,3 +289,31 @@ func TestTaskOpenedOnlyBySameOriginPost(t *testing.T) {
 		t.Fatalf("same-origin POST: status %d, opened=%v", rec.Code, opened())
 	}
 }
+
+// "Mark complete" and "Skip" set exactly those statuses; a posted status
+// field can't store anything else.
+func TestTaskCompleteIgnoresPostedStatus(t *testing.T) {
+	f := newSendFixture(t, config.Options{}, brokersN("a"))
+	task := &history.PendingTask{BrokerID: "a", BrokerName: "A", TaskType: history.TaskCaptcha,
+		FormURL: "https://a.example/form", Status: "pending"}
+	if err := f.store.AddPendingTask(task); err != nil {
+		t.Fatal(err)
+	}
+	id := strconv.FormatInt(task.ID, 10)
+	status := func() string {
+		got, err := f.store.GetPendingTaskByID(task.ID)
+		if err != nil || got == nil {
+			t.Fatalf("GetPendingTaskByID: %v", err)
+		}
+		return got.Status
+	}
+
+	postForm(f.h, "/tasks/"+id+"/complete", url.Values{"status": {"<b>bogus</b>"}})
+	if got := status(); got != "completed" {
+		t.Errorf("after complete with a posted status: %q, want completed", got)
+	}
+	postForm(f.h, "/tasks/"+id+"/skip", nil)
+	if got := status(); got != "skipped" {
+		t.Errorf("after skip: %q, want skipped", got)
+	}
+}

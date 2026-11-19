@@ -721,6 +721,15 @@ snapshot. Also: reclassify no longer dereferences a nil config.
   disk. It failed before the fix (8 data races, lost saves) and fails
   again with the mutex removed.
 
+## Follow-up: task status values (2026-11-19)
+
+Status: done. Found in the final review. `POST /tasks/{id}/complete` stored
+whatever `status` form value it was sent (no page sends one). It now always
+sets `completed` (`/skip` sets `skipped`), and `CompletePendingTask`
+rejects any other status.
+- verify: a web test that a posted status is ignored, and a store test that
+  only `completed` and `skipped` are accepted; both failed before the fix.
+
 ---
 
 ## Decisions (2026-11-18)

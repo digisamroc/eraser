@@ -343,7 +343,12 @@ func (s *Server) setupRouter() *chi.Mux {
 		r.Post("/email", s.handleSetupEmail)
 		r.Get("/test", s.handleSetupTest)
 		r.Post("/test/send", s.handleSetupTestSend)
-		r.Get("/complete", s.handleSetupComplete)
+		// Completing saves the config, so it's a POST; a GET (which any
+		// page can trigger) goes back to the test step.
+		r.Get("/complete", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/setup/test", http.StatusFound)
+		})
+		r.Post("/complete", s.handleSetupComplete)
 	})
 
 	// API routes (for HTMX)
@@ -1379,11 +1384,11 @@ Eraser`, session.Profile.FirstName),
 			<strong>Success!</strong> Test email sent to your address.
 			<p class="mt-2 text-sm">Check your inbox (and spam folder) for the test message.</p>
 		</div>
-		<div class="mt-4">
-			<a href="/setup/complete" class="inline-flex items-center px-6 py-3 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700">
+		<form method="post" action="/setup/complete" class="mt-4">
+			<button type="submit" class="inline-flex items-center px-6 py-3 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700">
 				Complete Setup
-			</a>
-		</div>
+			</button>
+		</form>
 	`))
 }
 

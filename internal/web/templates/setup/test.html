@@ -78,9 +78,11 @@
             <!-- Skip Option -->
             <div class="pt-6 border-t border-[var(--border)] text-center">
                 <p class="text-sm text-muted mb-3">Want to skip the test?</p>
-                <a href="/setup/complete" class="text-accent hover:underline font-medium">
-                    Skip and Complete Setup
-                </a>
+                <form method="post" action="/setup/complete">
+                    <button type="submit" class="text-accent hover:underline font-medium">
+                        Skip and Complete Setup
+                    </button>
+                </form>
             </div>
 
             <!-- Navigation -->

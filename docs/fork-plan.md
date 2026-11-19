@@ -694,6 +694,18 @@ safe (it walks up only to a registered domain).
   other customers' (with and without a website), and that a broker's own
   email subdomain still covers its organization; it failed before the fix.
 
+## Follow-up: setup completes by POST (2026-11-19)
+
+Status: done. Found in the final review. `GET /setup/complete` saved the
+config, breaking "GET handlers never change state". The SameSite=Strict
+session cookie kept other sites out, but a page on another localhost port
+counts as same-site. Completing is now `POST /setup/complete` (checked by
+`http.CrossOriginProtection`); the "Complete Setup" and "Skip and Complete
+Setup" links are form buttons, and a GET redirects to the test step.
+- verify: the wizard test checks a GET with a valid session redirects
+  without saving or writing the file, then completes by POST; it failed
+  before the fix.
+
 ---
 
 ## Decisions (2026-11-18)

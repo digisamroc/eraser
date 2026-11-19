@@ -61,7 +61,16 @@ func TestSetupWizardKeepsExistingSettings(t *testing.T) {
 		t.Fatalf("email: status %d: %s", rec.Code, rec.Body.String())
 	}
 
+	// A GET must not save (any page can trigger one); completing is a POST.
 	rec = do(h, http.MethodGet, "/setup/complete", func(r *http.Request) { r.AddCookie(cookie) })
+	if rec.Code != http.StatusFound || s.config.Profile.FirstName == "Janet" {
+		t.Fatalf("GET /setup/complete: status %d, first name %q; it must redirect without saving", rec.Code, s.config.Profile.FirstName)
+	}
+	if _, err := config.Load(s.configPath); err == nil {
+		t.Fatal("GET /setup/complete wrote the config file")
+	}
+
+	rec = postForm(h, "/setup/complete", nil, cookie)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("complete: status %d", rec.Code)
 	}

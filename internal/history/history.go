@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -129,6 +130,10 @@ func scanRecord(scanner interface{ Scan(...any) error }) (*Record, error) {
 // replies and send history, so the file is made owner-only before SQLite
 // opens it; SQLite gives its journal files the database file's mode.
 func NewStore(dbPath string) (*Store, error) {
+	if strings.Contains(dbPath, "?") {
+		// The driver reads connection options after the first "?".
+		return nil, fmt.Errorf("history database path must not contain '?': %s", dbPath)
+	}
 	if err := config.PrepareDir(filepath.Dir(dbPath)); err != nil {
 		return nil, fmt.Errorf("failed to create history directory: %w", err)
 	}
@@ -136,7 +141,11 @@ func NewStore(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("failed to secure history database: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	// Each pooled connection waits up to busyTimeout for a lock instead of
+	// failing at once with SQLITE_BUSY: the web UI reads while a send job
+	// writes, and the CLI can run alongside it. A failed history write stops
+	// a send, so it must not fail just because a read was in progress.
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout("+strconv.Itoa(int(busyTimeout/time.Millisecond))+")")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -148,6 +157,9 @@ func NewStore(dbPath string) (*Store, error) {
 	}
 	return store, nil
 }
+
+// busyTimeout is how long a statement waits for another connection's lock.
+const busyTimeout = 5 * time.Second
 
 // makePrivate creates path if needed and sets it, and any SQLite journal
 // files left beside it, to 0600.

@@ -12,7 +12,7 @@ This is a hardened fork; `docs/fork-plan.md` records what changed and why.
 
 - Go (version and toolchain pinned in `go.mod`)
 - CLI: Cobra. Web UI: chi + html/template + htmx 1.9.10 + prebuilt Tailwind CSS
-- Email: SMTP only (implicit TLS on 465, STARTTLS otherwise)
+- Email: SMTP only (implicit TLS on 465, STARTTLS otherwise; plaintext only to a loopback relay)
 - Storage: SQLite via `modernc.org/sqlite` (`~/.eraser/history.db`)
 - Inbox: IMAP via `go-imap` v1. Browser automation: chromedp (headless Chrome)
 
@@ -48,6 +48,9 @@ Each of these closes a real bug or leak. Tests cover them.
   `sendplan.ForConfig` (regions, exclusions, form-only, resend window, daily
   cap from history) and `sendplan.Deliverer.Deliver`. Don't add another.
   If writing history fails, stop: an unrecorded send would be repeated.
+  The web handlers hold `Server.sendMu` across "no job running, plan, start
+  or send", so two requests never plan from the same history. Once the
+  server accepts DATA, the send succeeded (a failed QUIT is ignored).
 - **Broker data:** `broker.LoadFromFile` validates every entry (single bare
   email, no personal-mailbox domains, unique ids). Manual entries need an
   https `source_url` (exclusions may use `evidence` instead).

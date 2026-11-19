@@ -79,3 +79,72 @@ func TestPipelineHeadless(t *testing.T) {
 		}
 	}
 }
+
+// Save must never write personal data into the existing file (which may be
+// readable by others until it is tightened, or truncated by a crash): it
+// writes a new 0600 file and renames it into place. A hard link to the old
+// file shows whether the old file was rewritten.
+func TestSaveReplacesFileInsteadOfRewritingIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX hard links and permissions")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("profile: {}\n"), 0o644); err != nil { //nolint:gosec // deliberately too open
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "old-link.yaml")
+	if err := os.Link(path, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Save(path, &Config{Profile: Profile{FirstName: "Jane"}}); err != nil {
+		t.Fatal(err)
+	}
+	if old, _ := os.ReadFile(link); string(old) != "profile: {}\n" { //nolint:gosec // test file
+		t.Errorf("Save rewrote the existing file in place; old file now holds %q", old)
+	}
+	cfg, err := Load(path)
+	if err != nil || cfg.Profile.FirstName != "Jane" {
+		t.Fatalf("Load after Save = %+v, %v", cfg, err)
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 2 {
+		t.Errorf("leftover files after Save: %v", entries)
+	}
+}
+
+func TestSaveTightensEraserDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permissions")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".eraser")
+	if err := os.Mkdir(dir, 0o755); err != nil { //nolint:gosec // deliberately too open
+		t.Fatal(err)
+	}
+	if err := Save(DefaultConfigPath(), &Config{}); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(dir); info.Mode().Perm() != 0o700 {
+		t.Errorf("~/.eraser permissions = %04o, want 0700", info.Mode().Perm())
+	}
+}
+
+// A --config path elsewhere is the user's choice; its folder isn't changed.
+func TestSaveLeavesOtherDirsAlone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permissions")
+	}
+	dir := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(dir, 0o755); err != nil { //nolint:gosec // a normal shared folder
+		t.Fatal(err)
+	}
+	if err := Save(filepath.Join(dir, "config.yaml"), &Config{}); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := os.Stat(dir); info.Mode().Perm() != 0o755 {
+		t.Errorf("folder permissions changed to %04o", info.Mode().Perm())
+	}
+}

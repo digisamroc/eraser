@@ -69,7 +69,9 @@ Each of these closes a real bug or leak. Tests cover them.
   `127.0.0.1:PORT` (DNS rebinding); `http.CrossOriginProtection` guards
   state-changing requests; never render stored passwords; no third-party
   assets (the CSP forbids them).
-- **Files:** config 0600; `~/.eraser` and screenshots 0700/0600.
+- **Files:** config and `history.db` 0600 (config saved via temp file and
+  rename; the database file is created 0600 before SQLite opens it);
+  `~/.eraser` tightened to 0700 by `config.PrepareDir`; screenshots 0700/0600.
 - **Chrome sandbox:** never pass `--no-sandbox`.
 
 ## Common Commands

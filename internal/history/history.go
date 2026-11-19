@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/eraser-privacy/eraser/internal/config"
 	_ "modernc.org/sqlite"
 )
 
@@ -124,9 +125,15 @@ func scanRecord(scanner interface{ Scan(...any) error }) (*Record, error) {
 	return &r, nil
 }
 
+// NewStore opens (or creates) the history database. It holds names, broker
+// replies and send history, so the file is made owner-only before SQLite
+// opens it; SQLite gives its journal files the database file's mode.
 func NewStore(dbPath string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
+	if err := config.PrepareDir(filepath.Dir(dbPath)); err != nil {
 		return nil, fmt.Errorf("failed to create history directory: %w", err)
+	}
+	if err := makePrivate(dbPath); err != nil {
+		return nil, fmt.Errorf("failed to secure history database: %w", err)
 	}
 
 	db, err := sql.Open("sqlite", dbPath)
@@ -140,6 +147,22 @@ func NewStore(dbPath string) (*Store, error) {
 		return nil, err
 	}
 	return store, nil
+}
+
+// makePrivate creates path if needed and sets it, and any SQLite journal
+// files left beside it, to 0600.
+func makePrivate(path string) error {
+	f, err := os.OpenFile(path, os.O_RDONLY|os.O_CREATE, 0o600) //nolint:gosec // G304: the user's own database path
+	if err != nil {
+		return err
+	}
+	_ = f.Close()
+	for _, p := range []string{path, path + "-journal", path + "-wal", path + "-shm"} {
+		if err := os.Chmod(p, 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) migrate() error {
@@ -432,11 +455,11 @@ func (s *Store) DeleteByStatus(status Status) (int64, error) {
 }
 
 func DefaultDBPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	dir := config.DataDir()
+	if dir == "" {
 		return "eraser_history.db"
 	}
-	return filepath.Join(home, ".eraser", "history.db")
+	return filepath.Join(dir, "history.db")
 }
 
 // ==================== Broker Response Methods ====================

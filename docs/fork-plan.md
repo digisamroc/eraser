@@ -706,6 +706,21 @@ Setup" links are form buttons, and a GET redirects to the test step.
   without saving or writing the file, then completes by POST; it failed
   before the fix.
 
+## Follow-up: web config without races (2026-11-19)
+
+Status: done. Found in the final review. Handlers read and replaced
+`Server.config` with no lock, and the inbox form changed it in place while
+the disclose form copied it, so one save could silently drop the other's
+change (in memory and on disk). The config is now an `atomic.Pointer`
+treated as read-only once published: `s.cfg()` reads it (once per
+handler), and `s.updateConfig` copies, changes, saves and swaps it while
+holding a mutex. The send path and inbox monitor take the caller's
+snapshot. Also: reclassify no longer dereferences a nil config.
+- verify: a test that runs disclose and inbox saves concurrently with page
+  loads, under `-race`, and checks both changes stick in memory and on
+  disk. It failed before the fix (8 data races, lost saves) and fails
+  again with the mutex removed.
+
 ---
 
 ## Decisions (2026-11-18)

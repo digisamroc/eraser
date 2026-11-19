@@ -50,7 +50,9 @@ Each of these closes a real bug or leak. Tests cover them.
   cap from history) and `sendplan.Deliverer.Deliver`. Don't add another.
   If writing history fails, stop: an unrecorded send would be repeated.
   The web handlers hold `Server.sendMu` across "no job running, plan, start
-  or send", so two requests never plan from the same history. Once the
+  or send", so two requests never plan from the same history. The web
+  server's config is read-only once published: read it with `s.cfg()` (once
+  per handler), change it only with `s.updateConfig`. Once the
   server accepts DATA, the send succeeded (a failed QUIT is ignored).
 - **Broker data:** `broker.LoadFromFile` validates every entry (single bare
   email, no personal-mailbox domains, unique ids). Manual entries need an

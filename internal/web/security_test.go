@@ -194,7 +194,7 @@ func TestSettingsInboxKeepsPasswordWhenLeftBlank(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
-	if s.config.Inbox.Password != inboxSecret {
+	if s.cfg().Inbox.Password != inboxSecret {
 		t.Fatalf("blank password field overwrote the saved password")
 	}
 }

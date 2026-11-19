@@ -36,6 +36,16 @@ brokers:
       source: ca-cppa
       source_url: https://cppa.ca.gov/data_broker_registry/
       registry_id: "1162"
+    - id: 5x5-us
+      name: 5x5 US, LLC
+      email: privacy@5x5coop.com
+      website: https://5x5data.com
+      opt_out_url: https://privacy.5x5data.com/5x5/opt-out
+      region: us
+      category: data-broker
+      source: manual
+      source_url: https://5x5data.com/privacy-policy-consumer/
+      registry_id: "1475"
     - id: 6sense-insights
       name: 6sense Insights, Inc.
       email: privacy@6sense.com
@@ -181,6 +191,16 @@ brokers:
       source: ca-cppa
       source_url: https://cppa.ca.gov/data_broker_registry/
       registry_id: "1546"
+    - id: adttribution
+      name: Adttribution Inc
+      email: privacy@adttribution.com
+      website: https://www.adttribution.com
+      opt_out_url: https://www.adttribution.com/opt-out/
+      region: us
+      category: data-broker
+      source: manual
+      source_url: https://www.adttribution.com/opt-out/
+      registry_id: "1239"
     - id: affinity
       name: Affinity
       email: privacy@affinity.co
@@ -3240,12 +3260,14 @@ brokers:
       registry_id: "1321"
     - id: kontext-data
       name: Kontext Data
-      email: info@kontextdata.com
+      email: privacy@kontextdata.com
       website: https://kontextdata.com
+      opt_out_url: https://kontextdata.com/opt_out
       region: us
       category: data-broker
-      source: ca-cppa
-      source_url: https://cppa.ca.gov/data_broker_registry/
+      notes: The opt-out page asks for requests by email to this address.
+      source: manual
+      source_url: https://kontextdata.com/opt_out
       registry_id: "1605"
     - id: l-s-mobile-apps-holdings
       name: L.S Mobile Apps Holdings LTD
@@ -4610,6 +4632,7 @@ brokers:
       name: R.L. Polk & Co.
       email: privacy@mobilityglobal.com
       website: https://www.mobilityglobal.com
+      opt_out_url: https://www.mobilityglobal.com/en-us/your-privacy-choices
       region: us
       category: data-broker
       notes: Doing business as Mobility Global; S&P Global.
@@ -5064,6 +5087,7 @@ brokers:
       name: ShareThis
       email: privacy@predactiv.com
       website: https://www.predactiv.com
+      opt_out_url: https://sharethis.com/data-subject-privacy-request/
       region: us
       category: data-broker
       notes: Registered as Predactiv.
@@ -5571,8 +5595,10 @@ brokers:
       name: The People Searchers LLC
       email: support@peoplesearcher.com
       website: http://www.peoplesearcher.com
+      opt_out_url: https://www.peoplesearcher.com/api/helper/optOutLight/search?type=removal
       region: us
       category: data-broker
+      notes: Use "Remove My Information"; "Your Privacy Choices" does not remove a listing.
       source: ca-cppa
       source_url: https://cppa.ca.gov/data_broker_registry/
       registry_id: "1396"

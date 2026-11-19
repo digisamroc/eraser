@@ -13,7 +13,37 @@
 #               [date_of_birth]; cite the broker's request or privacy page)
 #   exclude:   registry entries to drop, matched by email (reason required)
 
-add: []
+add:
+  # Registry rows with a mistyped or dead email address (excluded below),
+  # re-added with the privacy address the broker's own site gives.
+  - id: kontext-data
+    name: Kontext Data
+    email: privacy@kontextdata.com
+    website: https://kontextdata.com
+    opt_out_url: https://kontextdata.com/opt_out
+    region: us
+    category: data-broker
+    notes: The opt-out page asks for requests by email to this address.
+    source_url: https://kontextdata.com/opt_out
+    registry_id: "1605"
+  - id: adttribution
+    name: Adttribution Inc
+    email: privacy@adttribution.com
+    website: https://www.adttribution.com
+    opt_out_url: https://www.adttribution.com/opt-out/
+    region: us
+    category: data-broker
+    source_url: https://www.adttribution.com/opt-out/
+    registry_id: "1239"
+  - id: 5x5-us
+    name: 5x5 US, LLC
+    email: privacy@5x5coop.com
+    website: https://5x5data.com
+    opt_out_url: https://privacy.5x5data.com/5x5/opt-out
+    region: us
+    category: data-broker
+    source_url: https://5x5data.com/privacy-policy-consumer/
+    registry_id: "1475"
 
 overrides:
   # Reported in upstream PR #29 (one user's real sends, not independently
@@ -94,4 +124,26 @@ overrides:
     notes: Email is not processed; use the do-not-sell page.
     source_url: https://github.com/digisamroc/eraser/pull/29
 
-exclude: []
+  # Registry opt-out URLs on mistyped hosts (dropped by -check-mx), replaced
+  # with the page the broker's own privacy policy links to.
+  - email: privacy@predactiv.com
+    opt_out_url: https://sharethis.com/data-subject-privacy-request/
+    source_url: https://predactiv.com/privacy-policy/
+  - email: support@peoplesearcher.com
+    opt_out_url: https://www.peoplesearcher.com/api/helper/optOutLight/search?type=removal
+    notes: Use "Remove My Information"; "Your Privacy Choices" does not remove a listing.
+    source_url: https://www.peoplesearcher.com/privacy
+  - email: privacy@mobilityglobal.com
+    opt_out_url: https://www.mobilityglobal.com/en-us/your-privacy-choices
+    source_url: https://www.mobilityglobal.com/en-us/privacy
+
+exclude:
+  - email: info@kontextdata.com
+    reason: Its opt-out page asks for requests at privacy@kontextdata.com (re-added above).
+    source_url: https://kontextdata.com/opt_out
+  - email: hello@adttrbution.com
+    reason: Mistyped domain (adttrbution.com) with no mail host; re-added above with the site's privacy address.
+    source_url: https://www.adttribution.com/opt-out/
+  - email: contact@join5x5.com
+    reason: join5x5.com has no mail host; re-added above with the privacy address from 5x5's consumer notice.
+    source_url: https://5x5data.com/privacy-policy-consumer/

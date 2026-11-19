@@ -58,8 +58,6 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
-          # Legacy code is fixed phase by phase; only new issues fail CI.
-          only-new-issues: true
 
   css:
     runs-on: ubuntu-latest

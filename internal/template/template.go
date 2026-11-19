@@ -130,11 +130,11 @@ func (e *Engine) Render(templateName string, profile config.Profile, disclose co
 func (e *Engine) getSubject(templateName, brokerName string) string {
 	switch templateName {
 	case "gdpr":
-		return fmt.Sprintf("GDPR Data Erasure Request - Article 17 Right to Erasure")
+		return "GDPR Data Erasure Request - Article 17 Right to Erasure"
 	case "ccpa":
-		return fmt.Sprintf("CCPA Data Deletion Request - Right to Delete Personal Information")
+		return "CCPA Data Deletion Request - Right to Delete Personal Information"
 	default:
-		return fmt.Sprintf("Personal Data Removal Request")
+		return "Personal Data Removal Request"
 	}
 }
 

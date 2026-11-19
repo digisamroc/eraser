@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -192,7 +191,7 @@ type BrokerDatabase struct {
 }
 
 func LoadFromFile(path string) (*BrokerDatabase, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: the broker file path is the user's own --brokers flag
 	if err != nil {
 		return nil, fmt.Errorf("failed to read broker file: %w", err)
 	}
@@ -209,34 +208,6 @@ func LoadFromFile(path string) (*BrokerDatabase, error) {
 		return nil, fmt.Errorf("invalid broker file %s: %w", path, err)
 	}
 	return &db, nil
-}
-
-func LoadFromDir(dir string) (*BrokerDatabase, error) {
-	db := &BrokerDatabase{}
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read broker directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if !strings.HasSuffix(entry.Name(), ".yaml") && !strings.HasSuffix(entry.Name(), ".yml") {
-			continue
-		}
-
-		path := filepath.Join(dir, entry.Name())
-		partialDB, err := LoadFromFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load %s: %w", entry.Name(), err)
-		}
-
-		db.Brokers = append(db.Brokers, partialDB.Brokers...)
-	}
-
-	return db, nil
 }
 
 func toSet(items []string) map[string]bool {
@@ -286,22 +257,6 @@ func (db *BrokerDatabase) FindByID(id string) *Broker {
 	return nil
 }
 
-func (db *BrokerDatabase) Save(path string) error {
-	data, err := yaml.Marshal(db)
-	if err != nil {
-		return fmt.Errorf("failed to serialize brokers: %w", err)
-	}
-	return os.WriteFile(path, data, 0644)
-}
-
-func (db *BrokerDatabase) Add(broker Broker) error {
-	if db.FindByID(broker.ID) != nil {
-		return fmt.Errorf("broker with ID %q already exists", broker.ID)
-	}
-	db.Brokers = append(db.Brokers, broker)
-	return nil
-}
-
 // FindByEmail finds a broker by their email address
 func (db *BrokerDatabase) FindByEmail(email string) *Broker {
 	email = strings.ToLower(email)
@@ -311,49 +266,4 @@ func (db *BrokerDatabase) FindByEmail(email string) *Broker {
 		}
 	}
 	return nil
-}
-
-// RemoveByEmail removes a broker by their email address
-// Returns the removed broker, or nil if not found
-func (db *BrokerDatabase) RemoveByEmail(email string) *Broker {
-	email = strings.ToLower(email)
-	for i := range db.Brokers {
-		if strings.ToLower(db.Brokers[i].Email) == email {
-			removed := db.Brokers[i]
-			db.Brokers = append(db.Brokers[:i], db.Brokers[i+1:]...)
-			return &removed
-		}
-	}
-	return nil
-}
-
-// RemoveByID removes a broker by their ID
-// Returns the removed broker, or nil if not found
-func (db *BrokerDatabase) RemoveByID(id string) *Broker {
-	id = strings.ToLower(id)
-	for i := range db.Brokers {
-		if strings.ToLower(db.Brokers[i].ID) == id {
-			removed := db.Brokers[i]
-			db.Brokers = append(db.Brokers[:i], db.Brokers[i+1:]...)
-			return &removed
-		}
-	}
-	return nil
-}
-
-// SaveWithBackup saves the database to file, creating a backup first
-func (db *BrokerDatabase) SaveWithBackup(path string) error {
-	// Create backup
-	if _, err := os.Stat(path); err == nil {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("failed to read file for backup: %w", err)
-		}
-		backupPath := path + ".bak"
-		if err := os.WriteFile(backupPath, data, 0644); err != nil {
-			return fmt.Errorf("failed to create backup: %w", err)
-		}
-	}
-
-	return db.Save(path)
 }

@@ -2,15 +2,15 @@
 
 Take back your privacy. Eraser sends data removal requests to nearly 600 registered data brokers on your behalf—for free.
 
-You know those sites like Spokeo, BeenVerified, and Whitepages that have your home address, phone number, and family members' names? They're called data brokers, and there are hundreds of them. Services like Incogni and DeleteMe charge $100+/year to send opt-out requests to these companies. Eraser does the same thing, but it's open source and completely free.
+You know those sites like Spokeo, BeenVerified, and Whitepages that have your home address, phone number, and family members' names? They're called data brokers, and there are hundreds of them. Paid services send opt-out requests to these companies for you. Eraser automates the email part of that work. It's open source, free, and runs on your own computer.
 
 ### What to Expect
 
-**The good:** Eraser automatically sends removal request emails to nearly 600 data brokers registered with the State of California. Many brokers process these requests automatically—you send the email, they remove your data, done.
+**The good:** Eraser sends removal request emails to nearly 600 data brokers registered with the State of California, using contact addresses the brokers gave the state themselves. By default each email contains only your name and email address.
 
 **The reality:** Some brokers require additional steps. They might send you a confirmation link to click, ask you to fill out a form on their website, or request identity verification. Eraser tracks these responses and shows you exactly what needs manual attention.
 
-**The bottom line:** You're not paying $100+/year, and you're taking real action to protect your privacy. Even with some manual steps, Eraser handles the heavy lifting and gives you a fighting chance against the data broker industry.
+**The bottom line:** It's free and it handles the repetitive part, but expect some manual follow-up, and re-run it periodically (see "Running It Monthly").
 
 ---
 
@@ -30,7 +30,7 @@ If you're not comfortable with command-line tools, Eraser has a visual interface
 Open your terminal (on Mac, search for "Terminal"; on Windows, use PowerShell) and run:
 
 ```bash
-git clone https://github.com/eraser-privacy/eraser.git
+git clone https://github.com/kesmit13/eraser.git
 cd eraser
 go build -o eraser ./cmd/eraser
 ```
@@ -81,7 +81,7 @@ If you prefer the command line, Eraser has a full CLI.
 ### Installation
 
 ```bash
-git clone https://github.com/eraser-privacy/eraser.git
+git clone https://github.com/kesmit13/eraser.git
 cd eraser
 go build -o eraser ./cmd/eraser
 ```
@@ -235,40 +235,16 @@ Every entry needs an `https` `source_url` so it can be checked later.
 
 ---
 
-## Automate It with GitHub Actions
+## Running It Monthly
 
-Want Eraser to run automatically every month? Fork the repo and set up GitHub Actions.
+Brokers keep collecting data, so re-running helps. `eraser send` is safe to repeat: it skips brokers you sent to in the last 30 days and never goes over the daily limit. A monthly cron job on your own computer works:
 
-### Setup
+```cron
+# 9am on the 1st of each month
+0 9 1 * * cd /path/to/eraser && ./eraser send --yes >> ~/.eraser/send.log 2>&1
+```
 
-1. Fork this repository
-2. Go to Settings → Secrets and Variables → Actions
-3. Add these secrets:
-
-**Required:**
-| Secret | Value |
-|--------|-------|
-| `ERASER_FIRST_NAME` | Your first name |
-| `ERASER_LAST_NAME` | Your last name |
-| `ERASER_EMAIL` | Your Gmail address |
-| `ERASER_EMAIL_PROVIDER` | `smtp` |
-| `ERASER_TEMPLATE` | `gdpr`, `ccpa`, or `generic` |
-| `ERASER_SMTP_HOST` | `smtp.gmail.com` |
-| `ERASER_SMTP_PORT` | `465` |
-| `ERASER_SMTP_USERNAME` | Your Gmail address |
-| `ERASER_SMTP_PASSWORD` | Your Gmail App Password |
-
-**Optional (but recommended):**
-| Secret | Value |
-|--------|-------|
-| `ERASER_ADDRESS` | Street address |
-| `ERASER_CITY` | City |
-| `ERASER_STATE` | State |
-| `ERASER_ZIP_CODE` | ZIP code |
-| `ERASER_COUNTRY` | Country |
-| `ERASER_PHONE` | Phone number |
-
-The workflow runs on the 1st of every month. You can also trigger it manually from the Actions tab.
+Running it on GitHub Actions instead would mean storing your personal details and email password as repository secrets. Forks of public repositories are public too, and so are their Actions logs. Keep it on your own machine.
 
 ---
 
@@ -295,9 +271,22 @@ If a broker replies that it needs more information to find you, the reply is fla
 
 On Ubuntu 23.10+, Chrome may fail to start with "No usable sandbox". Allow unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=0` via `sysctl`), or install Chrome's AppArmor profile. Don't use `--no-sandbox`: the sandbox protects you from the sites `fill` opens.
 
+## Privacy: What Leaves Your Computer
+
+Eraser runs locally and has no telemetry. Nothing is sent anywhere except:
+
+| What | Goes to | When |
+|------|---------|------|
+| Removal emails: your name, email, and only the fields you choose to disclose | Each broker's registered address, through your own mail provider | `send`, or "Send" in the web UI |
+| Your mail password | Your mail provider (SMTP/IMAP over TLS) | Sending, and inbox monitoring if enabled |
+| Form fields you disclose to that broker | The broker's own https site | `fill` (optional) |
+| A confirmation link request | The broker's own https site | `confirm` (optional) |
+
+Everything else stays in `~/.eraser/` on your computer: `config.yaml` (owner-only, 0600), `history.db` (send history and broker replies), and `screenshots/` (owner-only). The web UI listens only on `127.0.0.1`, refuses requests addressed to other host names, and loads no third-party scripts, fonts, or styles. See [SECURITY.md](SECURITY.md) for the threat model.
+
 ## Security Notes
 
-- **Your config file contains personal data.** Don't commit it to git. The file is created with restricted permissions (readable only by you).
+- **Your config file contains personal data.** Don't commit it to git. It's created with owner-only permissions.
 - **Use app passwords, not your real password.** For Gmail, this is required. For other providers, it's still a good idea.
 - **Consider using a dedicated email.** This keeps your removal request activity separate from your main inbox.
 
@@ -307,11 +296,11 @@ On Ubuntu 23.10+, Chrome may fail to start with "No usable sandbox". Allow unpri
 
 Yes, with caveats:
 
-- **Most brokers comply.** They're legally required to under GDPR (EU) and CCPA (California). Even brokers not covered by these laws often honor requests to avoid liability.
-- **Some require manual steps.** About 20-30% of brokers will respond asking you to:
+- **Legal obligations vary.** Brokers registered in California must honor CCPA deletion requests from California residents, and GDPR covers people in the EU. Elsewhere, compliance is voluntary.
+- **Some require manual steps.** Some brokers will reply asking you to:
   - Click a confirmation link (Eraser detects these and shows them to you)
   - Fill out an opt-out form on their website (Eraser tracks these as "pending tasks")
-  - Verify your identity via email reply
+  - Send more details to find your records (flagged as "info required")
 - **It's not instant.** Brokers have up to 30-45 days to process requests (varies by law). Some are faster.
 - **You'll need to repeat this.** Data brokers buy and sell data continuously. Running Eraser monthly keeps you off their lists.
 
@@ -321,12 +310,7 @@ Yes, with caveats:
 
 ## How It Compares
 
-| Service | Price | Brokers | Open Source |
-|---------|-------|---------|-------------|
-| **Eraser** | Free | ~600 (CA registry) | Yes |
-| Incogni | $77/year | 180+ | No |
-| DeleteMe | $129/year | 750+ | No |
-| Privacy Duck | $500+/year | 500+ | No |
+Paid services such as DeleteMe and Incogni also submit web forms, re-check broker sites, and handle follow-ups for you. Eraser automates the emailed requests and tracks the replies, and leaves form submissions to you (with optional help from `fill`). Choose based on how much manual follow-up you're willing to do.
 
 ---
 
@@ -349,15 +333,25 @@ Development notes:
 
 ```
 eraser/
-├── cmd/eraser/main.go       # CLI entry point
+├── cmd/
+│   ├── eraser/              # CLI entry point (all commands)
+│   └── registry-import/     # Regenerates data/brokers.yaml from the CA registry
 ├── internal/
-│   ├── broker/              # Broker loading and filtering
-│   ├── config/              # Configuration handling
-│   ├── email/               # SMTP, SendGrid, Resend senders
-│   ├── history/             # SQLite request tracking
+│   ├── broker/              # Broker type, validation, filtering, OwnsURL
+│   ├── browser/             # Headless Chrome form filling and confirmation links
+│   ├── config/              # Configuration and disclosure settings
+│   ├── email/               # SMTP sender (implicit TLS / STARTTLS)
+│   ├── history/             # SQLite send history and broker replies
+│   ├── inbox/               # IMAP monitoring, sender verification, classification
+│   ├── registry/            # CPPA registry parsing and the manual overlay
+│   ├── sendplan/            # Shared send rules (filters, resend window, daily cap)
 │   ├── template/            # Email template rendering
-│   └── web/                 # Web UI server and handlers
-├── data/brokers.yaml        # Generated from the CA registry
+│   └── web/                 # Local web UI
+├── data/
+│   ├── brokers.yaml         # Generated: do not edit
+│   └── brokers.manual.yaml  # Hand-maintained additions, overrides, exclusions
+├── docs/fork-plan.md        # Hardening plan and results
+├── SECURITY.md              # Threat model and reporting
 └── config.example.yaml      # Example configuration
 ```
 
@@ -371,4 +365,4 @@ MIT — do whatever you want with it.
 
 ## Disclaimer
 
-This tool sends legitimate data removal requests based on privacy laws. It's not legal advice. Not all brokers are required to comply with all requests, and response times vary. But it works, and it's free.
+This tool sends legitimate data removal requests based on privacy laws. It's not legal advice. Not all brokers are required to comply with all requests, and response times vary.

@@ -12,6 +12,10 @@ linters:
         # A failed write to an HTTP response means the client is gone;
         # there is nothing useful to do with the error.
         - (net/http.ResponseWriter).Write
+        # Terminal and HTTP-response output; a failed write has no recovery.
+        - fmt.Fprintf
+        - fmt.Fprint
+        - fmt.Fprintln
     gosec:
       excludes:
         - G104 # unchecked errors; duplicates errcheck, which is configured above

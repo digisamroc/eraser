@@ -101,6 +101,9 @@ func TestAuthServFor(t *testing.T) {
 		{"outlook server", config.InboxConfig{Server: "outlook.office365.com"}, AuthServ{NoID: true}},
 		{"configured", config.InboxConfig{Provider: "gmail", AuthServID: "MX.Example.NET"}, AuthServ{ID: "mx.example.net"}},
 		{"other provider", config.InboxConfig{Provider: "imap", Server: "imap.example.net"}, AuthServ{}},
+		// A provider name doesn't vouch for someone else's server.
+		{"gmail provider, other server", config.InboxConfig{Provider: "gmail", Server: "imap.example.net"}, AuthServ{}},
+		{"outlook provider, other server", config.InboxConfig{Provider: "outlook", Server: "imap.example.net"}, AuthServ{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

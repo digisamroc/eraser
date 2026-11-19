@@ -26,16 +26,18 @@ type AuthServ struct {
 func (a AuthServ) Known() bool { return a.ID != "" || a.NoID }
 
 // AuthServFor works out which header to trust from the inbox settings:
-// inbox.authserv_id if set, otherwise Gmail's or Microsoft's own format.
+// inbox.authserv_id if set, otherwise Gmail's or Microsoft's own format. The
+// server decides: a provider name only counts with no server set (config.Load
+// then fills in the provider's own), so "gmail" on another server trusts nothing.
 func AuthServFor(c config.InboxConfig) AuthServ {
 	if c.AuthServID != "" {
 		return AuthServ{ID: strings.ToLower(strings.TrimSpace(c.AuthServID))}
 	}
-	server := strings.ToLower(c.Server)
+	server := strings.ToLower(strings.TrimSpace(c.Server))
 	switch {
-	case c.Provider == "gmail" || server == "imap.gmail.com":
+	case server == "imap.gmail.com" || (server == "" && c.Provider == "gmail"):
 		return AuthServ{ID: "mx.google.com"}
-	case c.Provider == "outlook" || server == "outlook.office365.com" || server == "imap-mail.outlook.com":
+	case server == "outlook.office365.com" || server == "imap-mail.outlook.com" || (server == "" && c.Provider == "outlook"):
 		return AuthServ{NoID: true}
 	}
 	return AuthServ{}

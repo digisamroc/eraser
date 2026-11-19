@@ -199,6 +199,30 @@ func TestSettingsInboxKeepsPasswordWhenLeftBlank(t *testing.T) {
 	}
 }
 
+// Editing the inbox account must not relabel a non-Gmail server as Gmail:
+// that would make Eraser trust Gmail's Authentication-Results on it.
+func TestSettingsInboxKeepsProviderOfExistingServer(t *testing.T) {
+	cfg := testConfig()
+	cfg.Inbox.Provider, cfg.Inbox.Server, cfg.Inbox.Port = "imap", "imap.example.net", 993
+	s, h := newTestServer(t, cfg)
+	form := url.Values{"inbox_email": {"jane@example.com"}, "inbox_password": {"new-secret"}}
+	rec := do(h, http.MethodPost, "/settings/inbox", func(r *http.Request) {
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Sec-Fetch-Site", "same-origin")
+		r.Body = readCloser(form.Encode())
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	got := s.cfg().Inbox
+	if got.Provider != "imap" || got.Server != "imap.example.net" {
+		t.Fatalf("inbox = %s on %s, want imap on imap.example.net", got.Provider, got.Server)
+	}
+	if got.Password != "new-secret" {
+		t.Fatalf("password not updated")
+	}
+}
+
 func TestSetupEmailKeepsPasswordWhenLeftBlank(t *testing.T) {
 	s, h := newTestServer(t, testConfig())
 	sid, err := s.sessions.Create()

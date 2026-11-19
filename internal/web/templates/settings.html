@@ -167,7 +167,6 @@
             {{end}}
 
             <form id="inbox-form" method="POST" action="/settings/inbox" class="{{if and .Config .Config.Inbox .Config.Inbox.Enabled}}hidden {{end}}space-y-4 mt-4">
-                {{.CSRFField}}
 
                 <div class="p-4 rounded-xl" style="background: rgba(245, 158, 11, 0.1);">
                     <h3 class="font-medium text-warning mb-2">Gmail Setup Instructions</h3>
@@ -189,10 +188,11 @@
 
                 <div>
                     <label for="inbox_password" class="label">App Password</label>
+                    {{/* Never render a stored password; only say whether one is saved. */}}
                     <input type="password" name="inbox_password" id="inbox_password"
-                        value="{{if and .Config .Config.Inbox}}{{.Config.Inbox.Password}}{{end}}"
+                        value="" autocomplete="new-password"
                         class="input"
-                        placeholder="xxxx xxxx xxxx xxxx">
+                        placeholder="{{if and .Config .Config.Inbox.Password}}Saved. Leave blank to keep it{{else}}xxxx xxxx xxxx xxxx{{end}}">
                     <p class="text-xs text-muted mt-1">Your 16-character Google App Password (not your regular password)</p>
                 </div>
 

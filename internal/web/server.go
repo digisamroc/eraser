@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"crypto/rand"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -28,7 +27,6 @@ import (
 	emaTemplate "github.com/eraser-privacy/eraser/internal/template"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/gorilla/csrf"
 )
 
 //go:embed static/*
@@ -114,7 +112,6 @@ type Server struct {
 	templates      map[string]*template.Template
 	httpServer     *http.Server
 	port           int
-	csrfKey        []byte
 	sessions       *SessionStore
 	rateLimiter    *RateLimiter
 	jobManager     *JobManager
@@ -122,11 +119,6 @@ type Server struct {
 }
 
 func NewServer(port int, cfg *config.Config, configPath string, brokerDB *broker.BrokerDatabase, historyStore *history.Store, tmplEngine *emaTemplate.Engine) (*Server, error) {
-	csrfKey := make([]byte, 32)
-	if _, err := rand.Read(csrfKey); err != nil {
-		return nil, fmt.Errorf("failed to generate CSRF key: %w", err)
-	}
-
 	// Get data directory for job persistence
 	home, _ := os.UserHomeDir()
 	dataDir := filepath.Join(home, ".eraser")
@@ -138,7 +130,6 @@ func NewServer(port int, cfg *config.Config, configPath string, brokerDB *broker
 		historyStore:   historyStore,
 		tmplEngine:     tmplEngine,
 		port:           port,
-		csrfKey:        csrfKey,
 		sessions:       NewSessionStore(defaultSessionTTL),
 		rateLimiter:    NewRateLimiter(defaultRateLimit, defaultRateWindow),
 		jobManager:     NewJobManager(),
@@ -268,10 +259,13 @@ func (s *Server) Start() error {
 	router := s.setupRouter()
 
 	s.httpServer = &http.Server{
-		Addr:         fmt.Sprintf("127.0.0.1:%d", s.port),
-		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		Addr:              fmt.Sprintf("127.0.0.1:%d", s.port),
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		// Longer than the slowest handler (inbox scan allows 60s), so its
+		// response isn't cut off mid-write.
+		WriteTimeout: 90 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
@@ -374,22 +368,14 @@ func (s *Server) setupRouter() *chi.Mux {
 	r := chi.NewRouter()
 
 	// Middleware
-	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Compress(5))
+	r.Use(allowHosts(fmt.Sprintf("localhost:%d", s.port), fmt.Sprintf("127.0.0.1:%d", s.port)))
 	r.Use(securityHeaders)
-
-	// CSRF protection - secure for localhost only
-	csrfMiddleware := csrf.Protect(
-		s.csrfKey,
-		csrf.Secure(false), // Allow HTTP for localhost
-		csrf.Path("/"),
-		csrf.HttpOnly(true),
-		csrf.SameSite(csrf.SameSiteLaxMode), // Lax mode for form submissions
-		csrf.RequestHeader("X-CSRF-Token"),  // For HTMX AJAX requests
-		csrf.TrustedOrigins([]string{"localhost", "127.0.0.1", fmt.Sprintf("localhost:%d", s.port), fmt.Sprintf("127.0.0.1:%d", s.port)}),
-	)
-	r.Use(csrfMiddleware)
+	// Reject cross-origin state-changing requests using the browser's
+	// Sec-Fetch-Site / Origin headers; no tokens needed.
+	r.Use(http.NewCrossOriginProtection().Handler)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Compress(5))
 
 	// Static files
 	staticSub, _ := fs.Sub(staticFS, "static")
@@ -445,6 +431,26 @@ func (s *Server) setupRouter() *chi.Mux {
 	return r
 }
 
+// allowHosts rejects requests whose Host header isn't one of ours. The server
+// only listens on 127.0.0.1, but a malicious site can point its own domain at
+// 127.0.0.1 (DNS rebinding) and read responses as same-origin. Its Host header
+// still carries the attacker's domain, so this blocks it.
+func allowHosts(hosts ...string) func(http.Handler) http.Handler {
+	allowed := make(map[string]bool, len(hosts))
+	for _, h := range hosts {
+		allowed[strings.ToLower(h)] = true
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !allowed[strings.ToLower(r.Host)] {
+				http.Error(w, "Forbidden: unexpected Host header", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // securityHeaders adds security headers to all responses
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -457,15 +463,16 @@ func securityHeaders(next http.Handler) http.Handler {
 		// Control referrer information
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 
-		// Content Security Policy - restrict resource loading
-		// 'unsafe-inline' needed for Tailwind CSS and inline scripts (HTMX attributes)
-		// CDN domains allowed for Tailwind, HTMX, and Google Fonts
+		// Content Security Policy: everything is served locally; no third
+		// parties. 'unsafe-inline' scripts remain for the templates' inline
+		// handlers and <script> blocks (see docs/fork-plan.md).
 		csp := "default-src 'self'; " +
-			"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com; " +
-			"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+			"script-src 'self' 'unsafe-inline'; " +
+			"style-src 'self' 'unsafe-inline'; " +
 			"img-src 'self' data:; " +
-			"font-src 'self' https://fonts.gstatic.com; " +
+			"font-src 'self'; " +
 			"connect-src 'self'; " +
+			"object-src 'none'; " +
 			"frame-ancestors 'none'; " +
 			"form-action 'self'; " +
 			"base-uri 'self'"
@@ -526,7 +533,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"PipelineStats": s.getPipelineStats(),
 	}
 
-	s.renderWithCSRF(w, r, "dashboard.html", data)
+	s.render(w, "dashboard.html", data)
 }
 
 func (s *Server) handleBrokers(w http.ResponseWriter, r *http.Request) {
@@ -555,7 +562,7 @@ func (s *Server) handleBrokers(w http.ResponseWriter, r *http.Request) {
 		"Total":      len(s.brokerDB.Brokers),
 		"Filtered":   len(brokers),
 	}
-	s.renderWithCSRF(w, r, "brokers.html", data)
+	s.render(w, "brokers.html", data)
 }
 
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
@@ -579,7 +586,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		"History":      filteredHistory,
 		"StatusFilter": statusFilter,
 	}
-	s.renderWithCSRF(w, r, "history.html", data)
+	s.render(w, "history.html", data)
 }
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
@@ -587,7 +594,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		"Title":  "Settings",
 		"Config": s.config,
 	}
-	s.renderWithCSRF(w, r, "settings.html", data)
+	s.render(w, "settings.html", data)
 }
 
 func (s *Server) handleSettingsInbox(w http.ResponseWriter, r *http.Request) {
@@ -596,26 +603,36 @@ func (s *Server) handleSettingsInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	email := r.FormValue("inbox_email")
-	password := r.FormValue("inbox_password")
+	email := strings.TrimSpace(r.FormValue("inbox_email"))
+	password := strings.TrimSpace(r.FormValue("inbox_password"))
 
-	// Validate required fields
+	if s.config == nil {
+		s.config = &config.Config{}
+	}
+	inbox := s.config.Inbox
+
+	// The page never shows the saved password, so a blank field means "keep
+	// it", but only for the same account.
+	if password == "" && inbox.Password != "" && strings.EqualFold(email, inbox.Email) {
+		password = inbox.Password
+	}
 	if email == "" || password == "" {
 		s.renderSettingsWithMessage(w, r, "Email and password are required", false)
 		return
 	}
 
-	// Update config with inbox settings
-	if s.config == nil {
-		s.config = &config.Config{}
+	// Update only the fields this form owns; keep folder and archive settings.
+	inbox.Enabled = true
+	inbox.Provider = "gmail"
+	inbox.Email = email
+	inbox.Password = password
+	if inbox.Server == "" {
+		inbox.Server, inbox.Port = "imap.gmail.com", 993
 	}
-
-	s.config.Inbox = config.InboxConfig{
-		Enabled:  true,
-		Provider: "gmail",
-		Email:    email,
-		Password: password,
+	if inbox.Folder == "" {
+		inbox.Folder = "INBOX"
 	}
+	s.config.Inbox = inbox
 
 	// Save config
 	if err := config.Save(s.configPath, s.config); err != nil {
@@ -633,7 +650,7 @@ func (s *Server) renderSettingsWithMessage(w http.ResponseWriter, r *http.Reques
 		"InboxMessage": message,
 		"InboxSuccess": success,
 	}
-	s.renderWithCSRF(w, r, "settings.html", data)
+	s.render(w, "settings.html", data)
 }
 
 // API handlers
@@ -1197,22 +1214,6 @@ func (s *Server) renderPartial(w http.ResponseWriter, name string, data interfac
 	}
 }
 
-func (s *Server) renderWithCSRF(w http.ResponseWriter, r *http.Request, name string, data map[string]interface{}) {
-	// Add CSRF token to data
-	data["CSRFToken"] = csrf.Token(r)
-	data["CSRFField"] = template.HTML(fmt.Sprintf(`<input type="hidden" name="gorilla.csrf.Token" value="%s">`, csrf.Token(r)))
-
-	tmpl, ok := s.templates[name]
-	if !ok {
-		http.Error(w, "Template not found: "+name, http.StatusInternalServerError)
-		return
-	}
-	err := tmpl.ExecuteTemplate(w, "layout", data)
-	if err != nil {
-		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
-	}
-}
-
 // Setup wizard handlers
 
 func (s *Server) handleSetupWelcome(w http.ResponseWriter, r *http.Request) {
@@ -1220,7 +1221,7 @@ func (s *Server) handleSetupWelcome(w http.ResponseWriter, r *http.Request) {
 		"Title": "Setup",
 		"Step":  "welcome",
 	}
-	s.renderWithCSRF(w, r, "setup/welcome.html", data)
+	s.render(w, "setup/welcome.html", data)
 }
 
 func (s *Server) handleSetupProfile(w http.ResponseWriter, r *http.Request) {
@@ -1258,7 +1259,7 @@ func (s *Server) handleSetupProfile(w http.ResponseWriter, r *http.Request) {
 				"Profile": profile,
 				"Errors":  errors,
 			}
-			s.renderWithCSRF(w, r, "setup/profile.html", data)
+			s.render(w, "setup/profile.html", data)
 			return
 		}
 
@@ -1286,7 +1287,7 @@ func (s *Server) handleSetupProfile(w http.ResponseWriter, r *http.Request) {
 		"Step":    "profile",
 		"Profile": profile,
 	}
-	s.renderWithCSRF(w, r, "setup/profile.html", data)
+	s.render(w, "setup/profile.html", data)
 }
 
 func (s *Server) handleSetupEmail(w http.ResponseWriter, r *http.Request) {
@@ -1311,6 +1312,14 @@ func (s *Server) handleSetupEmail(w http.ResponseWriter, r *http.Request) {
 		emailCfg.SMTP.Username = strings.TrimSpace(r.FormValue("smtp_username"))
 		emailCfg.SMTP.Password = strings.TrimSpace(r.FormValue("smtp_password"))
 		emailCfg.SMTP.UseTLS = r.FormValue("smtp_tls") == "on"
+
+		// The form never shows the saved password, so a blank field means
+		// "keep it", but only for the same account.
+		saved := session.Email.SMTP
+		if emailCfg.SMTP.Password == "" && saved.Password != "" &&
+			strings.EqualFold(emailCfg.SMTP.Username, saved.Username) && strings.EqualFold(emailCfg.SMTP.Host, saved.Host) {
+			emailCfg.SMTP.Password = saved.Password
+		}
 
 		// Validate required fields
 		if emailCfg.SMTP.Host == "" {
@@ -1338,7 +1347,7 @@ func (s *Server) handleSetupEmail(w http.ResponseWriter, r *http.Request) {
 				"Email":   emailCfg,
 				"Errors":  errors,
 			}
-			s.renderWithCSRF(w, r, "setup/email.html", data)
+			s.render(w, "setup/email.html", data)
 			return
 		}
 
@@ -1365,7 +1374,7 @@ func (s *Server) handleSetupEmail(w http.ResponseWriter, r *http.Request) {
 		"Profile": session.Profile,
 		"Email":   emailCfg,
 	}
-	s.renderWithCSRF(w, r, "setup/email.html", data)
+	s.render(w, "setup/email.html", data)
 }
 
 func (s *Server) handleSetupTest(w http.ResponseWriter, r *http.Request) {
@@ -1386,7 +1395,7 @@ func (s *Server) handleSetupTest(w http.ResponseWriter, r *http.Request) {
 		"Profile": session.Profile,
 		"Email":   session.Email,
 	}
-	s.renderWithCSRF(w, r, "setup/test.html", data)
+	s.render(w, "setup/test.html", data)
 }
 
 func (s *Server) handleSetupTestSend(w http.ResponseWriter, r *http.Request) {
@@ -1484,7 +1493,7 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 			"Title": "Setup - Error",
 			"Error": err.Error(),
 		}
-		s.renderWithCSRF(w, r, "setup/complete.html", data)
+		s.render(w, "setup/complete.html", data)
 		return
 	}
 
@@ -1499,7 +1508,7 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		"Step":    "complete",
 		"Profile": session.Profile,
 	}
-	s.renderWithCSRF(w, r, "setup/complete.html", data)
+	s.render(w, "setup/complete.html", data)
 }
 
 // Secure session helpers - credentials stored server-side only
@@ -1659,7 +1668,7 @@ func (s *Server) handlePipeline(w http.ResponseWriter, r *http.Request) {
 		"InboxConfigured": s.config.Inbox.Enabled,
 	}
 
-	s.renderWithCSRF(w, r, "pipeline.html", data)
+	s.render(w, "pipeline.html", data)
 }
 
 func (s *Server) handleForms(w http.ResponseWriter, r *http.Request) {
@@ -1782,7 +1791,7 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 		"TotalActionItems":   totalActionItems + needsReviewCount,
 	}
 
-	s.renderWithCSRF(w, r, "tasks.html", data)
+	s.render(w, "tasks.html", data)
 }
 
 func (s *Server) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
@@ -1806,7 +1815,7 @@ func (s *Server) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		"Task":  task,
 	}
 
-	s.renderWithCSRF(w, r, "task-detail.html", data)
+	s.render(w, "task-detail.html", data)
 }
 
 func (s *Server) handleTaskComplete(w http.ResponseWriter, r *http.Request) {
@@ -1918,7 +1927,7 @@ func (s *Server) handleTaskHelper(w http.ResponseWriter, r *http.Request) {
 		"OrderedProfile": orderedProfile,
 	}
 
-	s.renderWithCSRF(w, r, "task-helper.html", data)
+	s.render(w, "task-helper.html", data)
 }
 
 func (s *Server) handleAPIPipelineStats(w http.ResponseWriter, r *http.Request) {

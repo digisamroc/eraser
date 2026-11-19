@@ -321,15 +321,11 @@ async function startSendAll() {
     const category = document.querySelector('[name="category"]').value;
     const region = document.querySelector('[name="region"]').value;
 
-    // Get CSRF token
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-
     try {
         const resp = await fetch('/api/send-all', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-CSRF-Token': csrfToken
+                'Content-Type': 'application/x-www-form-urlencoded'
             },
             body: new URLSearchParams({ search, category, region })
         });
@@ -491,14 +487,9 @@ function showCompletionMessage(job) {
 async function cancelJob() {
     if (!currentJobId) return;
 
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-
     try {
         await fetch(`/api/job/${currentJobId}/cancel`, {
-            method: 'POST',
-            headers: {
-                'X-CSRF-Token': csrfToken
-            }
+            method: 'POST'
         });
     } catch (err) {
         console.error('Error cancelling job:', err);

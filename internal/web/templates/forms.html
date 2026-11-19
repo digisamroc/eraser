@@ -178,7 +178,6 @@
                             Open Form
                         </a>
                         <form action="/forms/{{.BrokerID}}/complete" method="POST" class="inline">
-                            <input type="hidden" name="gorilla.csrf.Token" value="{{$.CSRFToken}}">
                             <button type="submit" class="btn btn-primary text-xs px-3 py-1.5"
                                 hx-post="/forms/{{.BrokerID}}/complete"
                                 hx-confirm="Mark this form as complete?">
@@ -189,7 +188,6 @@
                             </button>
                         </form>
                         <form action="/forms/{{.BrokerID}}/skip" method="POST" class="inline">
-                            <input type="hidden" name="gorilla.csrf.Token" value="{{$.CSRFToken}}">
                             <button type="submit" class="btn btn-ghost text-xs px-2 py-1.5 text-gray-500 hover:text-gray-700"
                                 hx-post="/forms/{{.BrokerID}}/skip"
                                 hx-confirm="Skip this form?">

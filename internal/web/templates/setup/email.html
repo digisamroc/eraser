@@ -77,7 +77,6 @@
             </div>
 
             <form method="POST" action="/setup/email" class="space-y-5">
-                {{.CSRFField}}
 
                 <!-- Gmail Address -->
                 <div>
@@ -94,10 +93,11 @@
                 <!-- App Password -->
                 <div>
                     <label for="smtp_password" class="label">App Password</label>
+                    {{/* Never render a stored password; only say whether one is saved. */}}
                     <input type="password" name="smtp_password" id="smtp_password"
-                        value="{{.Email.SMTP.Password}}"
+                        value="" autocomplete="new-password"
                         class="input {{if .Errors.smtp_password}}border-error{{end}}"
-                        placeholder="xxxx xxxx xxxx xxxx">
+                        placeholder="{{if .Email.SMTP.Password}}Saved. Leave blank to keep it{{else}}xxxx xxxx xxxx xxxx{{end}}">
                     {{if .Errors.smtp_password}}
                     <p class="mt-1 text-sm text-error">{{.Errors.smtp_password}}</p>
                     {{end}}

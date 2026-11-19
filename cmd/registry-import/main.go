@@ -129,8 +129,12 @@ var retryDelay = time.Second
 // function over the results. A name only fails if every attempt fails.
 func resolveAll(names []string, check func(string) bool) func(string) bool {
 	results := make(map[string]bool, len(names))
+	var unique []string // ranged over below: the goroutines write to results
 	for _, n := range names {
-		results[n] = false
+		if _, dup := results[n]; !dup {
+			results[n] = false
+			unique = append(unique, n)
+		}
 	}
 
 	var (
@@ -138,7 +142,7 @@ func resolveAll(names []string, check func(string) bool) func(string) bool {
 		wg  sync.WaitGroup
 		sem = make(chan struct{}, 32)
 	)
-	for n := range results {
+	for _, n := range unique {
 		wg.Add(1)
 		go func(n string) {
 			defer wg.Done()

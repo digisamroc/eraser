@@ -558,6 +558,9 @@ Status: done. Items 1 and 2. Notes:
 - The regenerated `data/brokers.yaml` differs only by those 5 lines; the
   registry itself hadn't changed (598 brokers, the same 2 without a mail
   host).
+- CI's `-race` run then caught a data race in the resolver, inherited from
+  the old `lookupMailHosts`: it ranged over the results map while its
+  goroutines wrote to it. It now ranges over a separate list of names.
 - verify: Build drops unresolvable registry, override and manual URLs;
   `URLHosts` covers all three sources; `resolveAll` retries before failing.
   Each reverted makes a test fail.

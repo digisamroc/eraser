@@ -58,3 +58,24 @@ func TestSaveTightensExistingFilePermissions(t *testing.T) {
 		t.Fatalf("permissions = %04o, want 0600", perm)
 	}
 }
+
+func TestPipelineHeadless(t *testing.T) {
+	dir := t.TempDir()
+	for yaml, want := range map[string]bool{
+		"profile: {}\n":                         true,
+		"pipeline: {browser_headless: false}\n": false,
+		"pipeline: {browser_headless: true}\n":  true,
+	} {
+		path := filepath.Join(dir, "c.yaml")
+		if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := cfg.Pipeline.Headless(); got != want {
+			t.Errorf("%q: Headless() = %v, want %v", yaml, got, want)
+		}
+	}
+}

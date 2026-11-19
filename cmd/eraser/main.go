@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	"github.com/eraser-privacy/eraser/internal/template"
 	"github.com/eraser-privacy/eraser/internal/web"
 	"github.com/spf13/cobra"
+	"golang.org/x/net/publicsuffix"
 	"golang.org/x/term"
 )
 
@@ -946,13 +948,7 @@ func runPipelineStatus() error {
 }
 
 func fillCmd() *cobra.Command {
-	var brokerID string
-	var formURL string
-	var headless bool
-	var autoSubmit bool
-	var screenshotDir string
-	var pending bool
-	var waitForCaptcha bool
+	var o fillOptions
 
 	cmd := &cobra.Command{
 		Use:   "fill",
@@ -961,9 +957,13 @@ func fillCmd() *cobra.Command {
 
 This command uses headless Chrome to:
 - Navigate to opt-out form URLs
-- Detect and fill form fields with your personal information
+- Detect and fill form fields with the profile fields you disclose to that broker
 - Detect CAPTCHAs (creates tasks for manual solving)
 - Optionally submit the form
+
+Safety: forms are only filled on https pages on the broker's own domain
+(checked again after redirects). Form links from your inbox are only used
+when the sender was verified.
 
 Examples:
   # Fill a specific form URL
@@ -981,32 +981,101 @@ Examples:
   # Fill form and wait for you to solve CAPTCHA, then auto-submit
   eraser fill --url "https://example.com/optout" --headless=false --wait --submit`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runFill(brokerID, formURL, headless, autoSubmit, screenshotDir, pending, waitForCaptcha)
+			o.headlessSet = cmd.Flags().Changed("headless")
+			return runFill(o)
 		},
 	}
 
-	cmd.Flags().StringVar(&brokerID, "broker", "", "Broker ID to fill form for (uses URL from pipeline)")
-	cmd.Flags().StringVar(&formURL, "url", "", "Direct URL to the opt-out form")
-	cmd.Flags().BoolVar(&headless, "headless", true, "Run browser in headless mode")
-	cmd.Flags().BoolVar(&autoSubmit, "submit", false, "Automatically submit the form after filling")
-	cmd.Flags().StringVar(&screenshotDir, "screenshots", "", "Directory to save screenshots (default: ~/.eraser/screenshots)")
-	cmd.Flags().BoolVar(&pending, "pending", false, "Fill all pending forms from the pipeline")
-	cmd.Flags().BoolVar(&waitForCaptcha, "wait", false, "Wait for user to solve CAPTCHA before continuing (use with --headless=false)")
+	cmd.Flags().StringVar(&o.brokerID, "broker", "", "Broker ID to fill form for (uses URL from pipeline)")
+	cmd.Flags().StringVar(&o.formURL, "url", "", "Direct URL to the opt-out form")
+	cmd.Flags().BoolVar(&o.headless, "headless", true, "Run browser in headless mode (default: pipeline.browser_headless, true)")
+	cmd.Flags().BoolVar(&o.submit, "submit", false, "Automatically submit the form after filling")
+	cmd.Flags().StringVar(&o.screenshotDir, "screenshots", "", "Directory to save screenshots (default: ~/.eraser/screenshots)")
+	cmd.Flags().BoolVar(&o.pending, "pending", false, "Fill all pending forms from the pipeline")
+	cmd.Flags().BoolVar(&o.wait, "wait", false, "Wait for user to solve CAPTCHA before continuing (use with --headless=false)")
+	cmd.Flags().BoolVar(&o.allowOtherSite, "allow-other-domain", false, "With --url and --broker: allow a typed URL that isn't on the broker's domain")
 
 	return cmd
 }
 
-func runFill(brokerID, formURL string, headless, autoSubmit bool, screenshotDir string, pending bool, waitForCaptcha bool) error {
+// fillJob is one form to fill, with the check its pages must pass.
+type fillJob struct {
+	brokerID string
+	broker   *broker.Broker // nil for a URL the user typed without --broker
+	url      string
+	allowed  func(*url.URL) bool
+}
+
+// fillProfile returns the profile fields this broker may receive: the global
+// disclose setting plus the broker's own disclose list.
+func fillProfile(cfg *config.Config, b *broker.Broker) (config.Profile, error) {
+	disclose, err := cfg.Options.Disclosure()
+	if err != nil {
+		return config.Profile{}, err
+	}
+	if b != nil {
+		extra, err := config.ParseDisclosure(b.Disclose)
+		if err != nil {
+			return config.Profile{}, err
+		}
+		disclose = disclose.Union(extra)
+	}
+	return disclose.Apply(cfg.Profile), nil
+}
+
+// brokerAllowed only allows https pages the broker owns.
+func brokerAllowed(b *broker.Broker) func(*url.URL) bool {
+	return func(u *url.URL) bool { return b.OwnsURL(u.String()) }
+}
+
+// typedURLAllowed allows https pages on the same site as a URL the user typed.
+func typedURLAllowed(raw string) (func(*url.URL) bool, error) {
+	typed, err := url.Parse(raw)
+	if err != nil || typed.Scheme != "https" || typed.Hostname() == "" {
+		return nil, fmt.Errorf("form URL must be https: %s", raw)
+	}
+	site, err := publicsuffix.EffectiveTLDPlusOne(strings.ToLower(typed.Hostname()))
+	if err != nil {
+		return nil, fmt.Errorf("invalid form URL host: %s", raw)
+	}
+	return func(u *url.URL) bool {
+		org, err := publicsuffix.EffectiveTLDPlusOne(strings.ToLower(u.Hostname()))
+		return err == nil && u.Scheme == "https" && org == site
+	}, nil
+}
+
+type fillOptions struct {
+	brokerID, formURL, screenshotDir      string
+	headless, headlessSet                 bool
+	submit, pending, wait, allowOtherSite bool
+}
+
+func runFill(o fillOptions) error {
 	// Load config for profile data
 	cfg, err := config.Load(resolveConfigPath())
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	if _, err := cfg.Options.Disclosure(); err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+	brokerDB, err := broker.LoadFromFile(resolveBrokerPath())
+	if err != nil {
+		return fmt.Errorf("failed to load brokers: %w", err)
+	}
 
-	// Set default screenshot directory
+	// Screenshots show filled-in personal details: keep the default folder
+	// private, including one created by older versions with 0755.
+	screenshotDir := o.screenshotDir
 	if screenshotDir == "" {
 		home, _ := os.UserHomeDir()
 		screenshotDir = filepath.Join(home, ".eraser", "screenshots")
+		if err := os.MkdirAll(screenshotDir, 0o700); err != nil {
+			return fmt.Errorf("failed to create screenshot folder: %w", err)
+		}
+		if err := os.Chmod(screenshotDir, 0o700); err != nil { //nolint:gosec // G302: a directory needs x; 0700 is owner-only
+			return fmt.Errorf("failed to secure screenshot folder: %w", err)
+		}
 	}
 
 	// Initialize history store
@@ -1014,9 +1083,22 @@ func runFill(brokerID, formURL string, headless, autoSubmit bool, screenshotDir 
 	if err != nil {
 		return fmt.Errorf("failed to initialize history: %w", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
+
+	jobs, err := fillJobs(o, brokerDB, store)
+	if err != nil {
+		return err
+	}
+	if len(jobs) == 0 {
+		fmt.Println("✅ No pending forms to fill")
+		return nil
+	}
 
 	// Create browser config
+	headless := cfg.Pipeline.Headless()
+	if o.headlessSet {
+		headless = o.headless
+	}
 	browserCfg := browser.DefaultConfig()
 	browserCfg.Headless = headless
 	browserCfg.ScreenshotDir = screenshotDir
@@ -1025,7 +1107,7 @@ func runFill(brokerID, formURL string, headless, autoSubmit bool, screenshotDir 
 	}
 
 	// Set up wait for CAPTCHA if requested
-	if waitForCaptcha {
+	if o.wait {
 		if headless {
 			fmt.Println("⚠️  Warning: --wait requires --headless=false to be useful")
 		}
@@ -1042,8 +1124,7 @@ func runFill(brokerID, formURL string, headless, autoSubmit bool, screenshotDir 
 		}
 	}
 
-	// Create browser instance
-	b, err := browser.New(browserCfg, &cfg.Profile)
+	b, err := browser.New(browserCfg)
 	if err != nil {
 		return fmt.Errorf("failed to create browser: %w", err)
 	}
@@ -1052,152 +1133,147 @@ func runFill(brokerID, formURL string, headless, autoSubmit bool, screenshotDir 
 	fmt.Println("🌐 Browser Automation")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
-
-	// Determine what to fill
-	var formsToFill []struct {
-		BrokerID string
-		URL      string
-	}
-
-	if formURL != "" {
-		// Direct URL provided
-		formsToFill = append(formsToFill, struct {
-			BrokerID string
-			URL      string
-		}{BrokerID: brokerID, URL: formURL})
-	} else if brokerID != "" {
-		// Get URL for specific broker from pipeline
-		responses, err := store.GetBrokerResponses("form_required", false, 100)
-		if err != nil {
-			return fmt.Errorf("failed to get broker responses: %w", err)
-		}
-
-		found := false
-		for _, resp := range responses {
-			if resp.BrokerID == brokerID && resp.FormURL != "" {
-				formsToFill = append(formsToFill, struct {
-					BrokerID string
-					URL      string
-				}{BrokerID: resp.BrokerID, URL: resp.FormURL})
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			return fmt.Errorf("no form URL found for broker: %s", brokerID)
-		}
-	} else if pending {
-		// Get all pending forms
-		responses, err := store.GetBrokerResponses("form_required", false, 100)
-		if err != nil {
-			return fmt.Errorf("failed to get broker responses: %w", err)
-		}
-
-		for _, resp := range responses {
-			if resp.FormURL != "" {
-				formsToFill = append(formsToFill, struct {
-					BrokerID string
-					URL      string
-				}{BrokerID: resp.BrokerID, URL: resp.FormURL})
-			}
-		}
-
-		if len(formsToFill) == 0 {
-			fmt.Println("✅ No pending forms to fill")
-			return nil
-		}
-	} else {
-		return fmt.Errorf("please specify --url, --broker, or --pending")
-	}
-
-	fmt.Printf("📋 Forms to process: %d\n", len(formsToFill))
+	fmt.Printf("📋 Forms to process: %d\n", len(jobs))
 	fmt.Println()
 
-	// Process each form
-	for i, form := range formsToFill {
-		fmt.Printf("[%d/%d] Processing %s\n", i+1, len(formsToFill), form.URL)
-
-		if form.BrokerID != "" {
-			fmt.Printf("       Broker: %s\n", form.BrokerID)
+	for i, job := range jobs {
+		fmt.Printf("[%d/%d] Processing %s\n", i+1, len(jobs), job.url)
+		if job.brokerID != "" {
+			fmt.Printf("       Broker: %s\n", job.brokerID)
 		}
 
-		result, err := b.NavigateAndFill(form.URL, form.BrokerID, autoSubmit)
+		profile, err := fillProfile(cfg, job.broker)
+		if err != nil {
+			return fmt.Errorf("invalid disclose setting: %w", err)
+		}
+
+		result, err := b.NavigateAndFill(browser.FillRequest{
+			URL: job.url, BrokerID: job.brokerID, Profile: profile,
+			Allowed: job.allowed, Submit: o.submit,
+		})
 		if err != nil {
 			fmt.Printf("       ❌ Error: %v\n", err)
 			continue
 		}
 
-		// Print result
 		if len(result.FieldsFilled) > 0 {
 			fmt.Printf("       ✅ Filled fields: %s\n", strings.Join(result.FieldsFilled, ", "))
 		}
 		if len(result.FieldsMissing) > 0 {
-			fmt.Printf("       ⚠️  Missing profile data for: %s\n", strings.Join(result.FieldsMissing, ", "))
+			fmt.Printf("       ℹ️  Not filled (not disclosed, or not in your profile): %s\n", strings.Join(result.FieldsMissing, ", "))
 		}
 
-		if result.CaptchaFound {
+		switch {
+		case result.CaptchaFound:
 			fmt.Printf("       🤖 CAPTCHA detected: %s\n", result.CaptchaType)
 
-			// Store profile data as JSON for the helper page
-			profileData := map[string]string{
-				"email":     cfg.Profile.Email,
-				"firstName": cfg.Profile.FirstName,
-				"lastName":  cfg.Profile.LastName,
-				"phone":     cfg.Profile.Phone,
-				"address":   cfg.Profile.Address,
-				"city":      cfg.Profile.City,
-				"state":     cfg.Profile.State,
-				"zipCode":   cfg.Profile.ZipCode,
-				"country":   cfg.Profile.Country,
-			}
-			profileJSON, _ := json.Marshal(profileData)
-
-			// Create pending task for CAPTCHA
+			// The helper page shows only what this broker may receive.
+			profileJSON, _ := json.Marshal(map[string]string{
+				"email": profile.Email, "firstName": profile.FirstName, "lastName": profile.LastName,
+				"phone": profile.Phone, "address": profile.Address, "city": profile.City,
+				"state": profile.State, "zipCode": profile.ZipCode, "country": profile.Country,
+			})
 			task := &history.PendingTask{
-				BrokerID:     form.BrokerID,
-				BrokerName:   form.BrokerID, // Will need broker lookup for proper name
-				TaskType:     history.TaskCaptcha,
-				FormURL:      form.URL,
-				BrowserState: string(profileJSON), // Store profile data for helper page
-				Status:       "pending",
+				BrokerID:       job.brokerID,
+				BrokerName:     job.brokerID,
+				TaskType:       history.TaskCaptcha,
+				FormURL:        job.url,
+				BrowserState:   string(profileJSON),
+				Status:         "pending",
+				ScreenshotPath: result.ScreenshotPath,
 			}
-			if result.ScreenshotPath != "" {
-				task.ScreenshotPath = result.ScreenshotPath
-			}
-
 			if err := store.AddPendingTask(task); err != nil {
 				fmt.Printf("       ⚠️  Failed to create task: %v\n", err)
 			} else {
 				fmt.Printf("       📝 Created CAPTCHA task for manual solving\n")
 			}
-
-			// Update pipeline status
-			store.UpdatePipelineStatus(form.BrokerID, history.PipelineAwaitingCaptcha)
-		} else if result.SubmitAttempted {
-			fmt.Printf("       📨 Form submitted!\n")
-			store.UpdatePipelineStatus(form.BrokerID, history.PipelineFormFilled)
-		} else if result.Success {
-			fmt.Printf("       ✅ Form filled (not submitted)\n")
-			store.UpdatePipelineStatus(form.BrokerID, history.PipelineFormFilled)
+			_ = store.UpdatePipelineStatus(job.brokerID, history.PipelineAwaitingCaptcha)
+		case result.SubmitAttempted:
+			fmt.Printf("       📨 Form submitted\n")
+			_ = store.UpdatePipelineStatus(job.brokerID, history.PipelineFormFilled)
+		case result.ErrorMessage != "":
+			fmt.Printf("       ⚠️  %s\n", result.ErrorMessage)
+		case result.Success:
+			fmt.Printf("       ✅ Form filled (not submitted; use --submit, or --headless=false to review)\n")
 		}
 
 		if result.ScreenshotPath != "" {
 			fmt.Printf("       📸 Screenshot: %s\n", result.ScreenshotPath)
 		}
-
 		fmt.Println()
 
 		// Small delay between forms to be respectful
-		if i < len(formsToFill)-1 {
+		if i < len(jobs)-1 {
 			time.Sleep(2 * time.Second)
 		}
 	}
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("✅ Processed %d forms\n", len(formsToFill))
-
+	fmt.Printf("✅ Processed %d forms\n", len(jobs))
 	return nil
+}
+
+// fillJobs decides which forms to fill and what each may reach. URLs from
+// the inbox must come from a verified sender and belong to the broker, with
+// no override; only a URL the user typed can use --allow-other-domain.
+func fillJobs(o fillOptions, brokerDB *broker.BrokerDatabase, store *history.Store) ([]fillJob, error) {
+	if o.formURL != "" {
+		if o.brokerID == "" {
+			allowed, err := typedURLAllowed(o.formURL)
+			if err != nil {
+				return nil, err
+			}
+			return []fillJob{{url: o.formURL, allowed: allowed}}, nil
+		}
+		b := brokerDB.FindByID(o.brokerID)
+		if b == nil {
+			return nil, fmt.Errorf("unknown broker: %s", o.brokerID)
+		}
+		allowed := brokerAllowed(b)
+		if !b.OwnsURL(o.formURL) {
+			if !o.allowOtherSite {
+				return nil, fmt.Errorf("%s is not on %s's domain; check the URL, or pass --allow-other-domain if you're sure", o.formURL, b.ID)
+			}
+			if allowed, _ = typedURLAllowed(o.formURL); allowed == nil {
+				return nil, fmt.Errorf("form URL must be https: %s", o.formURL)
+			}
+		}
+		return []fillJob{{brokerID: b.ID, broker: b, url: o.formURL, allowed: allowed}}, nil
+	}
+
+	if o.brokerID == "" && !o.pending {
+		return nil, fmt.Errorf("please specify --url, --broker, or --pending")
+	}
+	responses, err := store.GetBrokerResponses("form_required", false, 100)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get broker responses: %w", err)
+	}
+	var jobs []fillJob
+	for _, resp := range responses {
+		if resp.FormURL == "" || (o.brokerID != "" && resp.BrokerID != o.brokerID) {
+			continue
+		}
+		b := brokerDB.FindByID(resp.BrokerID)
+		switch {
+		case !resp.Authenticated:
+			fmt.Printf("⏭️  %s: skipping a form link from an unverified email\n", resp.BrokerID)
+			continue
+		case b == nil:
+			fmt.Printf("⏭️  %s: broker no longer in the list; skipping\n", resp.BrokerID)
+			continue
+		case !b.OwnsURL(resp.FormURL):
+			fmt.Printf("⏭️  %s: form link %s is not on the broker's domain; open it yourself if you trust it\n", b.ID, resp.FormURL)
+			continue
+		}
+		jobs = append(jobs, fillJob{brokerID: b.ID, broker: b, url: resp.FormURL, allowed: brokerAllowed(b)})
+		if o.brokerID != "" {
+			break
+		}
+	}
+	if o.brokerID != "" && len(jobs) == 0 {
+		return nil, fmt.Errorf("no usable form URL found for broker: %s", o.brokerID)
+	}
+	return jobs, nil
 }
 
 func confirmCmd() *cobra.Command {
@@ -1246,6 +1322,13 @@ Safety features:
 	return cmd
 }
 
+// confirmLink is one confirmation link and the check every hop must pass.
+type confirmLink struct {
+	brokerID string
+	url      string
+	allowed  func(*url.URL) bool
+}
+
 func runConfirm(confirmURL, brokerID string, pending, validateDomain, dryRun bool) error {
 	// Load brokers for domain validation
 	brokerDB, err := broker.LoadFromFile(resolveBrokerPath())
@@ -1258,125 +1341,90 @@ func runConfirm(confirmURL, brokerID string, pending, validateDomain, dryRun boo
 	if err != nil {
 		return fmt.Errorf("failed to initialize history: %w", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
-	// Build list of broker domains for validation
-	var brokerDomains []string
-	for _, b := range brokerDB.Brokers {
-		if b.Website != "" {
-			// Extract domain from website
-			domain := strings.TrimPrefix(b.Website, "https://")
-			domain = strings.TrimPrefix(domain, "http://")
-			domain = strings.TrimSuffix(domain, "/")
-			if idx := strings.Index(domain, "/"); idx != -1 {
-				domain = domain[:idx]
-			}
-			brokerDomains = append(brokerDomains, domain)
-
-			// Also add the bare domain without www prefix
-			if strings.HasPrefix(domain, "www.") {
-				brokerDomains = append(brokerDomains, strings.TrimPrefix(domain, "www."))
-			}
-		}
-	}
-
-	// Create confirmation handler
-	handler := browser.NewConfirmationHandler(brokerDomains)
+	handler := browser.NewConfirmationHandler()
 
 	fmt.Println("🔗 Confirmation Link Handler")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
 
-	// Determine what to confirm
-	var linksToConfirm []struct {
-		BrokerID string
-		URL      string
-	}
-
-	if confirmURL != "" {
-		// Direct URL provided
-		linksToConfirm = append(linksToConfirm, struct {
-			BrokerID string
-			URL      string
-		}{BrokerID: brokerID, URL: confirmURL})
-	} else if brokerID != "" {
-		// Get URL for specific broker from pipeline
+	var links []confirmLink
+	switch {
+	case confirmURL != "" && brokerID != "":
+		b := brokerDB.FindByID(brokerID)
+		if b == nil {
+			return fmt.Errorf("unknown broker: %s", brokerID)
+		}
+		links = append(links, confirmLink{brokerID: b.ID, url: confirmURL, allowed: brokerAllowed(b)})
+	case confirmURL != "":
+		// A link the user typed, with no broker: it must be on some broker's
+		// domain (unless --validate-domain=false), and redirects must stay
+		// on that site.
+		site, err := typedURLAllowed(confirmURL)
+		if err != nil {
+			return err
+		}
+		allowed := site
+		if validateDomain {
+			allowed = func(u *url.URL) bool { return site(u) && anyBrokerOwns(brokerDB, u) }
+		}
+		links = append(links, confirmLink{url: confirmURL, allowed: allowed})
+	case brokerID != "" || pending:
 		responses, err := store.GetBrokerResponses("confirmation_required", false, 100)
 		if err != nil {
 			return fmt.Errorf("failed to get broker responses: %w", err)
 		}
-
-		found := false
 		for _, resp := range responses {
-			if resp.BrokerID == brokerID && resp.ConfirmURL != "" {
-				linksToConfirm = append(linksToConfirm, struct {
-					BrokerID string
-					URL      string
-				}{BrokerID: resp.BrokerID, URL: resp.ConfirmURL})
-				found = true
+			if resp.ConfirmURL == "" || (brokerID != "" && resp.BrokerID != brokerID) {
+				continue
+			}
+			b := brokerDB.FindByID(resp.BrokerID)
+			switch {
+			case !resp.Authenticated:
+				fmt.Printf("⏭️  %s: skipping a link from an unverified email\n", resp.BrokerID)
+				continue
+			case b == nil:
+				fmt.Printf("⏭️  %s: broker no longer in the list; skipping\n", resp.BrokerID)
+				continue
+			}
+			links = append(links, confirmLink{brokerID: b.ID, url: resp.ConfirmURL, allowed: brokerAllowed(b)})
+			if brokerID != "" {
 				break
 			}
 		}
-
-		if !found {
-			return fmt.Errorf("no confirmation URL found for broker: %s", brokerID)
+		if brokerID != "" && len(links) == 0 {
+			return fmt.Errorf("no usable confirmation URL found for broker: %s", brokerID)
 		}
-	} else if pending {
-		// Get all pending confirmation links
-		responses, err := store.GetBrokerResponses("confirmation_required", false, 100)
-		if err != nil {
-			return fmt.Errorf("failed to get broker responses: %w", err)
-		}
-
-		for _, resp := range responses {
-			if resp.ConfirmURL != "" {
-				linksToConfirm = append(linksToConfirm, struct {
-					BrokerID string
-					URL      string
-				}{BrokerID: resp.BrokerID, URL: resp.ConfirmURL})
-			}
-		}
-
-		if len(linksToConfirm) == 0 {
+		if len(links) == 0 {
 			fmt.Println("✅ No pending confirmation links")
 			return nil
 		}
-	} else {
+	default:
 		return fmt.Errorf("please specify --url, --broker, or --pending")
 	}
 
-	fmt.Printf("📋 Confirmation links to process: %d\n", len(linksToConfirm))
+	fmt.Printf("📋 Confirmation links to process: %d\n", len(links))
 	if dryRun {
 		fmt.Println("🔍 DRY RUN MODE - Links will not be clicked")
 	}
 	fmt.Println()
 
-	// Process each link
 	successCount := 0
 	failCount := 0
 
-	for i, link := range linksToConfirm {
-		fmt.Printf("[%d/%d] Processing confirmation link\n", i+1, len(linksToConfirm))
-		if link.BrokerID != "" {
-			fmt.Printf("       Broker: %s\n", link.BrokerID)
+	for i, link := range links {
+		fmt.Printf("[%d/%d] Processing confirmation link\n", i+1, len(links))
+		if link.brokerID != "" {
+			fmt.Printf("       Broker: %s\n", link.brokerID)
 		}
-		fmt.Printf("       URL: %s\n", truncateURL(link.URL, 60))
+		fmt.Printf("       URL: %s\n", truncateURL(link.url, 60))
 
-		// Validate domain if requested
-		if validateDomain {
-			valid, domain, err := handler.ValidateDomain(link.URL)
-			if err != nil {
-				fmt.Printf("       ❌ Invalid URL: %v\n", err)
-				failCount++
-				continue
-			}
-			if !valid {
-				fmt.Printf("       ⚠️  Domain %s is not a known broker domain\n", domain)
-				fmt.Printf("       Use --validate-domain=false to override\n")
-				failCount++
-				continue
-			}
-			fmt.Printf("       ✓ Domain validated: %s\n", domain)
+		if u, err := url.Parse(link.url); err != nil || !link.allowed(u) {
+			fmt.Printf("       ⚠️  Not on the broker's domain (or not https); not clicking\n")
+			failCount++
+			fmt.Println()
+			continue
 		}
 
 		if dryRun {
@@ -1386,59 +1434,64 @@ func runConfirm(confirmURL, brokerID string, pending, validateDomain, dryRun boo
 			continue
 		}
 
-		// Click the confirmation link
-		result, err := handler.ClickConfirmationLink(link.URL, false) // Domain already validated above
+		// Every redirect hop must pass the same check.
+		result, err := handler.ClickConfirmationLink(link.url, link.allowed)
 		if err != nil {
 			fmt.Printf("       ❌ Error: %v\n", err)
 			failCount++
+			fmt.Println()
 			continue
 		}
 
-		// Show result
 		fmt.Printf("       HTTP Status: %d\n", result.StatusCode)
 		if len(result.RedirectPath) > 1 {
 			fmt.Printf("       Redirects: %d hops\n", len(result.RedirectPath)-1)
 		}
-		if result.FinalURL != link.URL {
+		if result.FinalURL != link.url {
 			fmt.Printf("       Final URL: %s\n", truncateURL(result.FinalURL, 60))
 		}
 
-		// Extract and show status
 		status := handler.ExtractConfirmationStatus(result)
 		if result.Success {
 			fmt.Printf("       ✅ %s\n", status)
 			successCount++
-
-			// Update pipeline status
-			if link.BrokerID != "" {
-				store.UpdatePipelineStatus(link.BrokerID, history.PipelineConfirmed)
+			if link.brokerID != "" {
+				_ = store.UpdatePipelineStatus(link.brokerID, history.PipelineConfirmed)
 			}
 		} else {
 			fmt.Printf("       ⚠️  %s\n", status)
 			failCount++
-
-			// Still update status to indicate we tried
-			if link.BrokerID != "" {
-				store.UpdatePipelineStatus(link.BrokerID, history.PipelineFailed)
+			if link.brokerID != "" {
+				_ = store.UpdatePipelineStatus(link.brokerID, history.PipelineFailed)
 			}
 		}
 
 		fmt.Println()
 
 		// Small delay between confirmations
-		if i < len(linksToConfirm)-1 {
+		if i < len(links)-1 {
 			time.Sleep(1 * time.Second)
 		}
 	}
 
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	if dryRun {
-		fmt.Printf("📊 Dry run complete: %d links would be clicked\n", len(linksToConfirm))
+		fmt.Printf("📊 Dry run complete: %d links would be clicked\n", len(links))
 	} else {
 		fmt.Printf("📊 Complete: %d confirmed, %d failed\n", successCount, failCount)
 	}
 
 	return nil
+}
+
+// anyBrokerOwns reports whether some broker in the list owns u.
+func anyBrokerOwns(db *broker.BrokerDatabase, u *url.URL) bool {
+	for _, b := range db.Brokers {
+		if b.OwnsURL(u.String()) {
+			return true
+		}
+	}
+	return false
 }
 
 // truncateURL truncates a URL to the specified length for display

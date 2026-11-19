@@ -283,6 +283,18 @@ The workflow runs on the 1st of every month. You can also trigger it manually fr
 
 If a broker replies that it needs more information to find you, the reply is flagged as "info required". You can then add a per-broker `disclose` override (see "What Gets Sent").
 
+## Form Filling and Confirmation Links (optional)
+
+`eraser fill` opens broker opt-out forms in headless Chrome and fills them in. `eraser confirm` clicks confirmation links. Safeguards:
+
+- **The broker's own site only.** A page must be https and on the broker's registered domain, or under its registered opt-out URL. This is checked before loading, after any redirect (including script redirects), and again before submitting. `confirm` checks every redirect hop.
+- **Verified emails only.** Links taken from your inbox are only used if the email's sender was verified (see Inbox Monitoring).
+- **Only what you disclose.** Forms get your name and email plus the fields in `options.disclose` and that broker's own `disclose` list. Nothing else is typed in.
+- **No fake success.** The tool only reports "submitted" after clicking the form's own submit button. Without one, it tells you to submit by hand.
+- **Private screenshots.** Screenshots of filled forms are saved owner-only in `~/.eraser/screenshots`.
+
+On Ubuntu 23.10+, Chrome may fail to start with "No usable sandbox". Allow unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=0` via `sysctl`), or install Chrome's AppArmor profile. Don't use `--no-sandbox`: the sandbox protects you from the sites `fill` opens.
+
 ## Security Notes
 
 - **Your config file contains personal data.** Don't commit it to git. The file is created with restricted permissions (readable only by you).

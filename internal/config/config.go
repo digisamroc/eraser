@@ -33,6 +33,12 @@ type Config struct {
 	Pipeline Pipeline    `yaml:"pipeline,omitempty"`
 }
 
+// Headless reports whether to run the browser headless; true unless the
+// config sets browser_headless: false.
+func (p Pipeline) Headless() bool {
+	return p.BrowserHeadless == nil || *p.BrowserHeadless
+}
+
 // InboxConfig holds IMAP settings for monitoring broker responses
 type InboxConfig struct {
 	Enabled       bool   `yaml:"enabled"`
@@ -48,10 +54,10 @@ type InboxConfig struct {
 
 // Pipeline holds settings for the automation pipeline
 type Pipeline struct {
-	AutoConfirm       bool `yaml:"auto_confirm"`        // Auto-click confirmation links
-	AutoFillForms     bool `yaml:"auto_fill_forms"`     // Enable browser automation for forms
-	BrowserHeadless   bool `yaml:"browser_headless"`    // Run browser in headless mode
-	BrowserTimeoutSec int  `yaml:"browser_timeout_sec"` // Browser operation timeout
+	AutoConfirm       bool  `yaml:"auto_confirm"`               // Auto-click confirmation links
+	AutoFillForms     bool  `yaml:"auto_fill_forms"`            // Enable browser automation for forms
+	BrowserHeadless   *bool `yaml:"browser_headless,omitempty"` // Run browser in headless mode (default true)
+	BrowserTimeoutSec int   `yaml:"browser_timeout_sec"`        // Browser operation timeout
 }
 
 type Profile struct {
@@ -193,7 +199,6 @@ func Load(path string) (*Config, error) {
 	if cfg.Pipeline.BrowserTimeoutSec == 0 {
 		cfg.Pipeline.BrowserTimeoutSec = 30
 	}
-	cfg.Pipeline.BrowserHeadless = true // Default to headless
 
 	return &cfg, nil
 }

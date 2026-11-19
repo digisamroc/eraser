@@ -60,8 +60,6 @@ type InboxConfig struct {
 
 // Pipeline holds settings for the automation pipeline
 type Pipeline struct {
-	AutoConfirm       bool  `yaml:"auto_confirm"`               // Auto-click confirmation links
-	AutoFillForms     bool  `yaml:"auto_fill_forms"`            // Enable browser automation for forms
 	BrowserHeadless   *bool `yaml:"browser_headless,omitempty"` // Run browser in headless mode (default true)
 	BrowserTimeoutSec int   `yaml:"browser_timeout_sec"`        // Browser operation timeout
 }

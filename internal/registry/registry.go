@@ -149,6 +149,9 @@ func LoadManual(path string) (Manual, error) {
 type Options struct {
 	// HasMailHost reports whether a domain can receive mail. Nil skips the check.
 	HasMailHost func(domain string) bool
+	// HostResolves reports whether a website or opt-out URL host exists in
+	// DNS (see URLHosts). Nil skips the check.
+	HostResolves func(host string) bool
 }
 
 // Report summarizes what Build kept and dropped.
@@ -158,9 +161,12 @@ type Report struct {
 	Rejected   []string
 	Excluded   []string
 	NoMailHost []string
-	Overridden int
-	Added      int
-	Warnings   []string
+	// DroppedURLs lists websites and opt-out URLs removed because their host
+	// doesn't resolve.
+	DroppedURLs []string
+	Overridden  int
+	Added       int
+	Warnings    []string
 }
 
 var allowedOverrideTags = map[string]bool{broker.TagFormOnly: true}
@@ -268,6 +274,24 @@ func Build(entries []Entry, m Manual, opts Options) (*broker.BrokerDatabase, Rep
 		byEmail[a.Email] = len(brokers)
 		brokers = append(brokers, a)
 		rep.Added++
+	}
+
+	// broker.OwnsURL trusts these hosts, and the web UI links to opt-out
+	// URLs: a host that doesn't exist (often a registry typo) could be
+	// registered by anyone.
+	if opts.HostResolves != nil {
+		for i := range brokers {
+			b := &brokers[i]
+			for _, f := range []struct {
+				name string
+				url  *string
+			}{{"website", &b.Website}, {"opt-out URL", &b.OptOutURL}} {
+				if *f.url != "" && !opts.HostResolves(urlHost(*f.url)) {
+					rep.DroppedURLs = append(rep.DroppedURLs, fmt.Sprintf("%s: %s %s", b.ID, f.name, *f.url))
+					*f.url = ""
+				}
+			}
+		}
 	}
 
 	sort.SliceStable(brokers, func(i, j int) bool {
@@ -381,6 +405,42 @@ func appendNote(notes, add string) string {
 }
 
 var urlListSeparator = regexp.MustCompile(`[;,\s]+`)
+
+// URLHosts returns the distinct hosts of every website and opt-out URL that
+// Build would write, for checking with Options.HostResolves.
+func URLHosts(entries []Entry, m Manual) []string {
+	seen := make(map[string]bool)
+	add := func(raw string) {
+		if h := urlHost(normalizeURL(raw)); h != "" {
+			seen[h] = true
+		}
+	}
+	for _, e := range entries {
+		add(e.Website)
+		add(e.PrivacyURL)
+	}
+	for _, o := range m.Overrides {
+		add(o.OptOutURL)
+	}
+	for _, a := range m.Add {
+		add(a.Website)
+		add(a.OptOutURL)
+	}
+	hosts := make([]string, 0, len(seen))
+	for h := range seen {
+		hosts = append(hosts, h)
+	}
+	return hosts
+}
+
+// urlHost returns the lowercase host of a URL, or "".
+func urlHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
+}
 
 // normalizeURL returns an http(s) URL, or "" if raw isn't one. Registrants
 // often omit the scheme ("www.acme.com") or list several sites; the first is used.

@@ -3242,7 +3242,6 @@ brokers:
       name: Kontext Data
       email: info@kontextdata.com
       website: https://kontextdata.com
-      opt_out_url: https://www.kontextdata.com
       region: us
       category: data-broker
       source: ca-cppa
@@ -4611,7 +4610,6 @@ brokers:
       name: R.L. Polk & Co.
       email: privacy@mobilityglobal.com
       website: https://www.mobilityglobal.com
-      opt_out_url: https://www.mobiityglobal.com
       region: us
       category: data-broker
       notes: Doing business as Mobility Global; S&P Global.
@@ -5066,7 +5064,6 @@ brokers:
       name: ShareThis
       email: privacy@predactiv.com
       website: https://www.predactiv.com
-      opt_out_url: https://www.predactiv.cm
       region: us
       category: data-broker
       notes: Registered as Predactiv.
@@ -5389,7 +5386,6 @@ brokers:
     - id: subdirect
       name: Subdirect LLC
       email: privacy@360mediadirect.com
-      website: https://www360mediadirect.com
       opt_out_url: https://360-media-direct.privacy.saymine.io/360_Media_Direct
       region: us
       category: data-broker
@@ -5575,7 +5571,6 @@ brokers:
       name: The People Searchers LLC
       email: support@peoplesearcher.com
       website: http://www.peoplesearcher.com
-      opt_out_url: http://peopesearcher.cm
       region: us
       category: data-broker
       source: ca-cppa

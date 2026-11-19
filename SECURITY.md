@@ -11,8 +11,12 @@ what it doesn't cover.
 |-------|----------------|
 | Profile (name, email, address, phone, DOB) | `~/.eraser/config.yaml` (0600) |
 | SMTP and IMAP app passwords | `~/.eraser/config.yaml` (0600) |
-| Send history, broker replies (bodies capped at 64 KB) | `~/.eraser/history.db` |
+| Send history, broker replies (bodies capped at 64 KB) | `~/.eraser/history.db` (0600) |
 | Screenshots of filled forms | `~/.eraser/screenshots/` (0700 folder, 0600 files) |
+
+`~/.eraser` itself is kept at 0700, including a folder left more open by an
+older version. The config is saved to a new 0600 file and renamed into place,
+so the previous file is never rewritten.
 
 ## Threats and mitigations
 

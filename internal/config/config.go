@@ -153,12 +153,35 @@ func (o Options) EffectiveResendAfterDays() int {
 	return DefaultResendAfterDays
 }
 
-func DefaultConfigPath() string {
+// DataDir returns Eraser's own folder, ~/.eraser, or "" if there is no home
+// directory.
+func DataDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".eraser")
+}
+
+// PrepareDir creates dir (0700) if needed. Eraser's own folder is also
+// tightened to 0700 if it already exists, since it holds the config, history
+// and screenshots. Any other folder (from --config or --db) is left as is.
+func PrepareDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if own := DataDir(); own != "" && filepath.Clean(dir) == own {
+		return os.Chmod(dir, 0o700) //nolint:gosec // G302: a directory needs x; 0700 is owner-only
+	}
+	return nil
+}
+
+func DefaultConfigPath() string {
+	dir := DataDir()
+	if dir == "" {
 		return "config.yaml"
 	}
-	return filepath.Join(home, ".eraser", "config.yaml")
+	return filepath.Join(dir, "config.yaml")
 }
 
 func Load(path string) (*Config, error) {
@@ -207,8 +230,11 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// Save writes the config to a new owner-only file and renames it over path.
+// The old file is never rewritten (it may be readable by others), and a crash
+// can't leave a truncated config.
 func Save(path string, cfg *Config) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	if err := PrepareDir(filepath.Dir(path)); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -216,12 +242,26 @@ func Save(path string, cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to serialize config: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return err
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".config-*.yaml") // created 0600
+	if err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
 	}
-	// WriteFile only applies the mode when creating the file; tighten an
-	// existing file too, since it holds personal data and credentials.
-	return os.Chmod(path, 0600)
+	defer func() { _ = os.Remove(tmp.Name()) }() // no-op once renamed
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+	return nil
 }
 
 func (c *Config) Validate() error {

@@ -403,6 +403,15 @@ Status: done. Items 1–4. Notes:
 
 ### 9B: Local data permissions
 
+Status: done. Items 1 and 2. `config.PrepareDir` is the one place that
+creates and tightens `~/.eraser`; folders from `--config` or `--db` are left
+as they are. SQLite gives journal files the database file's mode, so a 0600
+database keeps them 0600 too.
+- verify: new and existing (0644 in a 0755 `~/.eraser`) databases end up
+  0600/0700; a hard link to the old config keeps its old contents after
+  `Save` (it used to be rewritten in place). Each fix reverted on its own
+  makes a test fail.
+
 1. **`history.db` is created 0644.** `NewStore` only sets 0700 on a directory
    it creates; an existing `~/.eraser` keeps its mode, so names and broker
    email bodies can be world-readable.

@@ -2,7 +2,9 @@ package history
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -184,5 +186,80 @@ func TestCountSentSinceAcrossTimeZones(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("CountSentSince = %d, want 1", n)
+	}
+}
+
+func perm(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Mode().Perm()
+}
+
+// The database holds names, broker replies and send history: owner-only.
+func TestNewStoreCreatesPrivateFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permissions")
+	}
+	path := filepath.Join(t.TempDir(), "history.db")
+	s, err := NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Add(&Record{BrokerID: "a", BrokerName: "A", Email: "p@a.example", Template: "generic", Status: StatusSent, SentAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if p := perm(t, path); p != 0o600 {
+		t.Errorf("history.db permissions = %04o, want 0600", p)
+	}
+}
+
+func TestNewStoreTightensExistingFiles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permissions")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".eraser")
+	if err := os.Mkdir(dir, 0o755); err != nil { //nolint:gosec // deliberately too open, as older versions left it
+		t.Fatal(err)
+	}
+	path := DefaultDBPath()
+	if err := os.WriteFile(path, nil, 0o644); err != nil { //nolint:gosec // deliberately too open
+		t.Fatal(err)
+	}
+
+	s, err := NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if p := perm(t, path); p != 0o600 {
+		t.Errorf("history.db permissions = %04o, want 0600", p)
+	}
+	if p := perm(t, dir); p != 0o700 {
+		t.Errorf("~/.eraser permissions = %04o, want 0700", p)
+	}
+}
+
+// A --db path elsewhere is the user's choice; its folder isn't changed.
+func TestNewStoreLeavesOtherDirsAlone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permissions")
+	}
+	dir := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(dir, 0o755); err != nil { //nolint:gosec // a normal shared folder
+		t.Fatal(err)
+	}
+	s, err := NewStore(filepath.Join(dir, "history.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	if p := perm(t, dir); p != 0o755 {
+		t.Errorf("folder permissions changed to %04o", p)
 	}
 }

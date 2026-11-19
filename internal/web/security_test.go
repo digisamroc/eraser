@@ -8,11 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/eraser-privacy/eraser/internal/broker"
 	"github.com/eraser-privacy/eraser/internal/config"
+	"github.com/eraser-privacy/eraser/internal/history"
 )
 
 const testPort = 8080
@@ -251,5 +253,39 @@ func TestScreenshotRouteServesOnlyScreenshots(t *testing.T) {
 		if rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "password") {
 			t.Errorf("%s: status %d", bad, rec.Code)
 		}
+	}
+}
+
+// Opening the helper page must not change anything on a GET: cross-origin
+// protection only covers state-changing methods, so any site could trigger
+// it with an <img>. The page records "opened" with a same-origin POST.
+func TestTaskOpenedOnlyBySameOriginPost(t *testing.T) {
+	f := newSendFixture(t, config.Options{}, brokersN("a"))
+	task := &history.PendingTask{BrokerID: "a", BrokerName: "A", TaskType: history.TaskCaptcha,
+		FormURL: "https://a.example/form", Status: "pending"}
+	if err := f.store.AddPendingTask(task); err != nil {
+		t.Fatal(err)
+	}
+	opened := func() bool {
+		got, err := f.store.GetPendingTaskByID(task.ID)
+		if err != nil || got == nil {
+			t.Fatalf("GetPendingTaskByID: %v", err)
+		}
+		return got.OpenedAt.Valid
+	}
+	id := strconv.FormatInt(task.ID, 10)
+
+	if rec := do(f.h, http.MethodGet, "/tasks/"+id+"/helper", nil); rec.Code != http.StatusOK {
+		t.Fatalf("helper page: status %d", rec.Code)
+	}
+	if opened() {
+		t.Fatal("a GET of the helper page marked the task opened")
+	}
+	crossSite := func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") }
+	if rec := do(f.h, http.MethodPost, "/tasks/"+id+"/opened", crossSite); rec.Code != http.StatusForbidden || opened() {
+		t.Fatalf("cross-site POST: status %d, opened=%v", rec.Code, opened())
+	}
+	if rec := do(f.h, http.MethodPost, "/tasks/"+id+"/opened", sameOrigin); rec.Code != http.StatusNoContent || !opened() {
+		t.Fatalf("same-origin POST: status %d, opened=%v", rec.Code, opened())
 	}
 }

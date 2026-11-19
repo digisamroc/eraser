@@ -1,5 +1,6 @@
 {{define "content"}}
 <div class="max-w-4xl mx-auto">
+    <div hx-post="/tasks/{{.Task.ID}}/opened" hx-trigger="load" hx-swap="none"></div>
     <!-- Header -->
     <div class="mb-6">
         <a href="/tasks" class="text-blue-600 hover:text-blue-800 text-sm">&larr; Back to Action Needed</a>

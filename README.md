@@ -198,7 +198,7 @@ The generic template is a good default if you're not sure.
 
 - merges registrations that share an email address,
 - rejects personal mailboxes (Gmail, Outlook, etc.),
-- with `-check-mx`, drops domains that can't receive mail.
+- with `-check-mx`, drops domains that can't receive mail, and website or opt-out URLs whose host doesn't exist (often a typo that anyone could register).
 
 Some brokers don't process emailed requests. They're tagged `form-only`; `send` skips them, and the web UI links to their form instead.
 

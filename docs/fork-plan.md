@@ -549,6 +549,22 @@ Status: done. Items 1–3. Notes:
 
 ### 9F: Registry data
 
+Status: done. Items 1 and 2. Notes:
+- The first regeneration dropped 12 URLs, not 5: under 32 parallel lookups
+  the macOS resolver answered "no such host" for live domains. The mail-host
+  check has the same exposure and drops whole brokers. A name now only counts
+  as missing after three failed attempts, and a URL is only dropped on a
+  definite not-found (a timeout keeps it). Three runs then gave the same 5.
+- The regenerated `data/brokers.yaml` differs only by those 5 lines; the
+  registry itself hadn't changed (598 brokers, the same 2 without a mail
+  host).
+- CI's `-race` run then caught a data race in the resolver, inherited from
+  the old `lookupMailHosts`: it ranged over the results map while its
+  goroutines wrote to it. It now ranges over a separate list of names.
+- verify: Build drops unresolvable registry, override and manual URLs;
+  `URLHosts` covers all three sources; `resolveAll` retries before failing.
+  Each reverted makes a test fail.
+
 1. **Typo and unregistered domains are trusted.** `OwnsURL` trusts a broker's
    website and opt-out hosts, and the web UI links to opt-out URLs. Five
    don't resolve today, four of them registry typos: `www.predactiv.cm`

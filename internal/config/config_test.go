@@ -166,3 +166,19 @@ func TestValidateRejectsPlaintextSMTPToRemoteHost(t *testing.T) {
 		}
 	}
 }
+
+// pipeline.auto_confirm and auto_fill_forms were never read and are gone;
+// configs that still have them must keep loading.
+func TestLoadIgnoresRemovedPipelineKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(path, []byte("pipeline: {auto_confirm: true, auto_fill_forms: true, browser_timeout_sec: 45}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Pipeline.BrowserTimeoutSec != 45 {
+		t.Errorf("browser_timeout_sec = %d", cfg.Pipeline.BrowserTimeoutSec)
+	}
+}

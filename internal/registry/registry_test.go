@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -274,5 +275,55 @@ func TestSlug(t *testing.T) {
 		if got := slug(in); got != want {
 			t.Errorf("slug(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// Websites and opt-out URLs are trusted by broker.OwnsURL and linked from the
+// web UI. A host that doesn't resolve (a registry typo such as "predactiv.cm")
+// can be registered by anyone, so its URL is dropped and reported.
+func TestBuildDropsURLsWhoseHostDoesNotResolve(t *testing.T) {
+	entries := []Entry{
+		{RegistryID: "1", Name: "Typo Co", Email: "privacy@typo.example", Website: "https://www.typo.example",
+			PrivacyURL: "https://www.typo.cm/optout"},
+		{RegistryID: "2", Name: "Fine Co", Email: "privacy@fine.example", Website: "fine.example",
+			PrivacyURL: "https://privacy.fine.example/"},
+	}
+	manual := Manual{
+		Overrides: []Override{{Email: "privacy@fine.example", OptOutURL: "https://gone.example/form",
+			SourceURL: "https://fine.example/privacy"}},
+		Add: []broker.Broker{{ID: "added", Name: "Added", Email: "privacy@added.example", Region: "us",
+			Website: "https://www.added-typo.example", SourceURL: "https://added.example/privacy"}},
+	}
+	resolves := map[string]bool{"www.typo.example": true, "fine.example": true, "privacy.fine.example": true}
+	db, rep, err := Build(entries, manual, Options{HostResolves: func(h string) bool { return resolves[h] }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][2]string{ // id -> website, opt-out URL
+		"typo":  {"https://www.typo.example", ""},
+		"fine":  {"https://fine.example", ""}, // the override's host doesn't resolve
+		"added": {"", ""},
+	}
+	for _, b := range db.Brokers {
+		if got := [2]string{b.Website, b.OptOutURL}; got != want[b.ID] {
+			t.Errorf("%s: website, opt-out = %q, want %q", b.ID, got, want[b.ID])
+		}
+	}
+	if len(rep.DroppedURLs) != 3 {
+		t.Errorf("DroppedURLs = %q, want 3 entries", rep.DroppedURLs)
+	}
+}
+
+func TestURLHosts(t *testing.T) {
+	entries := []Entry{{Website: "Example.com/path", PrivacyURL: "https://privacy.example.com/x"}}
+	manual := Manual{
+		Overrides: []Override{{OptOutURL: "https://form.example.net/"}},
+		Add:       []broker.Broker{{Website: "https://added.example.org", OptOutURL: "https://optout.example.org"}},
+	}
+	got := URLHosts(entries, manual)
+	slices.Sort(got)
+	want := []string{"added.example.org", "example.com", "form.example.net", "optout.example.org", "privacy.example.com"}
+	if !slices.Equal(got, want) {
+		t.Errorf("URLHosts = %q, want %q", got, want)
 	}
 }

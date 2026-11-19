@@ -90,7 +90,9 @@ full bodies are downloaded only for broker messages. Nothing is marked read.
   other messages already flagged `\Deleted` in that folder. Gmail and Outlook
   support MOVE.
 - **Registry accuracy:** addresses are what brokers registered; some may be
-  stale. The 15 `form-only` overrides come from one user's report (upstream PR
+  stale. Websites and opt-out URLs whose host doesn't exist are dropped when
+  the list is regenerated with `-check-mx`, but a typo that someone has
+  already registered would still pass. The 15 `form-only` overrides come from one user's report (upstream PR
   #29) and are cited as such.
 - **Malware running as your user** can read everything above; that's out of
   scope.

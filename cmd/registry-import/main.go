@@ -8,6 +8,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -27,7 +28,7 @@ func main() {
 	csvPath := flag.String("csv", "", "registry CSV file (default: download "+registry.RegistryURL+")")
 	manualPath := flag.String("manual", "data/brokers.manual.yaml", "manual overlay file")
 	outPath := flag.String("out", "data/brokers.yaml", "output broker database")
-	checkMX := flag.Bool("check-mx", false, "drop brokers whose email domain has no MX or A record")
+	checkMX := flag.Bool("check-mx", false, "drop brokers whose email domain has no MX or A record, and website/opt-out URLs whose host doesn't exist")
 	reportPath := flag.String("report", "", "write a Markdown report of dropped and changed entries to this file")
 	flag.Parse()
 
@@ -53,7 +54,8 @@ func run(csvPath, manualPath, outPath string, checkMX bool, reportPath string) e
 
 	var opts registry.Options
 	if checkMX {
-		opts.HasMailHost = lookupMailHosts(entries)
+		opts.HasMailHost = resolveAll(emailDomains(entries), hasMailHost)
+		opts.HostResolves = resolveAll(registry.URLHosts(entries, manual), hostExists)
 	}
 
 	db, rep, err := registry.Build(entries, manual, opts)
@@ -103,14 +105,35 @@ func readRegistry(path string) ([]byte, error) {
 	return data, nil
 }
 
-// lookupMailHosts resolves every email domain concurrently up front and
-// returns a lookup function over the results.
-func lookupMailHosts(entries []registry.Entry) func(string) bool {
-	domains := make(map[string]bool)
+func emailDomains(entries []registry.Entry) []string {
+	var domains []string
 	for _, e := range entries {
 		addr := strings.ToLower(strings.TrimSpace(e.Email))
 		if i := strings.LastIndex(addr, "@"); i >= 0 {
-			domains[addr[i+1:]] = false
+			domains = append(domains, addr[i+1:])
+		}
+	}
+	return domains
+}
+
+// resolveAttempts is how many times a name must fail before it counts as
+// missing. Under many parallel lookups the system resolver sometimes answers
+// "no such host" for domains that exist (seen on macOS), and a wrong answer
+// here drops a broker or a URL.
+const resolveAttempts = 3
+
+// retryDelay is the wait before the second attempt, doubled for the third.
+var retryDelay = time.Second
+
+// resolveAll checks every name concurrently up front and returns a lookup
+// function over the results. A name only fails if every attempt fails.
+func resolveAll(names []string, check func(string) bool) func(string) bool {
+	results := make(map[string]bool, len(names))
+	var unique []string // ranged over below: the goroutines write to results
+	for _, n := range names {
+		if _, dup := results[n]; !dup {
+			results[n] = false
+			unique = append(unique, n)
 		}
 	}
 
@@ -119,21 +142,39 @@ func lookupMailHosts(entries []registry.Entry) func(string) bool {
 		wg  sync.WaitGroup
 		sem = make(chan struct{}, 32)
 	)
-	for d := range domains {
+	for _, n := range unique {
 		wg.Add(1)
-		go func(d string) {
+		go func(n string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			ok := hasMailHost(d)
+			ok := check(n)
+			for attempt := 1; !ok && attempt < resolveAttempts; attempt++ {
+				time.Sleep(time.Duration(attempt) * retryDelay)
+				ok = check(n)
+			}
 			mu.Lock()
-			domains[d] = ok
+			results[n] = ok
 			mu.Unlock()
-		}(d)
+		}(n)
 	}
 	wg.Wait()
 
-	return func(domain string) bool { return domains[domain] }
+	return func(name string) bool { return results[name] }
+}
+
+// hostExists reports whether host has an address record. Only a definite
+// "no such host" counts as missing: a timeout or server failure keeps the
+// URL, so a flaky resolver doesn't change the generated file.
+func hostExists(host string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupHost(ctx, host)
+	if err == nil {
+		return len(addrs) > 0
+	}
+	var dnsErr *net.DNSError
+	return !errors.As(err, &dnsErr) || !dnsErr.IsNotFound
 }
 
 // hasMailHost follows RFC 5321: use MX records, or fall back to an A/AAAA record.
@@ -165,6 +206,7 @@ func formatReport(rep registry.Report, kept int) string {
 	section("Rejected", rep.Rejected)
 	section("Excluded by manual file", rep.Excluded)
 	section("No mail host", rep.NoMailHost)
+	section("URLs dropped (host doesn't exist)", rep.DroppedURLs)
 	section("Warnings", rep.Warnings)
 	return b.String()
 }

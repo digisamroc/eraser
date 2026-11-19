@@ -2341,12 +2341,18 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 		var newType inbox.ResponseType
 		var confidence float64
 		var needsReview bool
+
+		// Keep the links found when the email was fetched (only from a
+		// verified sender). The stored row can't redo that: it doesn't say
+		// whether the body is HTML (so "&amp;" would end up in URLs) or which
+		// domain sent it (used to prefer the broker's own links).
 		var formURL, confirmURL string
+		if resp.Authenticated {
+			formURL, confirmURL = resp.FormURL, resp.ConfirmURL
+		}
 
 		if resp.EmailBody != "" {
 			// Use full classifier with body
-			// Links are only taken from email whose sender was verified
-			// when it was fetched.
 			email := &inbox.Email{
 				From:          resp.EmailFrom,
 				Subject:       resp.EmailSubject,
@@ -2357,15 +2363,9 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 			newType = classified.Type
 			confidence = classified.Confidence
 			needsReview = classified.NeedsReview
-			formURL = classified.FormURL
-			confirmURL = classified.ConfirmURL
 		} else {
 			// Fall back to subject-only classification
 			newType, confidence, needsReview = inbox.ClassifyBySubjectOnly(resp.EmailSubject)
-			if resp.Authenticated {
-				formURL = resp.FormURL
-				confirmURL = resp.ConfirmURL
-			}
 		}
 
 		// Only update if classification changed or was unknown

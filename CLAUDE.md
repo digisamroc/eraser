@@ -68,7 +68,8 @@ Each of these closes a real bug or leak. Tests cover them.
   session, and a fetch only re-EXAMINEs when the folder changes (SELECT
   replies would otherwise look like new mail). `Connect` honors its ctx.
 - **fill/confirm:** pages must pass `broker.OwnsURL` (https, broker's
-  organizational domain or under its registered opt-out URL). `fill` checks
+  organizational domain or under its registered opt-out URL; a help-desk
+  email subdomain like `acme.zendesk.com` covers only itself). `fill` checks
   before navigating, after load, after CAPTCHA waits and before submitting.
   `confirm` checks every redirect hop. Each field is filled by one in-page
   script that first checks the page is still on the checked origin, skips

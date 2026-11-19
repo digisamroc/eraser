@@ -157,6 +157,34 @@ func TestOwnsURL(t *testing.T) {
 	}
 }
 
+// A broker whose email is on a help desk's subdomain (privacy@acme.zendesk.com)
+// owns that subdomain, not the whole help desk: other customers' pages there
+// aren't the broker's. Its own email subdomains still cover the organization.
+func TestOwnsURLHelpDeskEmail(t *testing.T) {
+	helpDesk := Broker{ID: "acme", Email: "privacy@acme.zendesk.com", Website: "https://www.acme.com"}
+	for raw, want := range map[string]bool{
+		"https://acme.zendesk.com/hc/requests/new": true,
+		"https://help.acme.zendesk.com/form":       true,
+		"https://www.acme.com/privacy":             true,
+		"https://other.zendesk.com/hc/requests":    false,
+		"https://zendesk.com/form":                 false,
+	} {
+		if got := helpDesk.OwnsURL(raw); got != want {
+			t.Errorf("help desk: OwnsURL(%q) = %v, want %v", raw, got, want)
+		}
+	}
+
+	noWebsite := Broker{ID: "acme", Email: "privacy@acme.zendesk.com"}
+	if noWebsite.OwnsURL("https://other.zendesk.com/hc") {
+		t.Error("no website: another help desk customer's page accepted")
+	}
+
+	ownSubdomain := Broker{ID: "acme", Email: "privacy@mail.acme.com", Website: "https://www.acme.com"}
+	if !ownSubdomain.OwnsURL("https://privacy.acme.com/form") {
+		t.Error("own email subdomain no longer covers the broker's organization")
+	}
+}
+
 func TestEmailAccepted(t *testing.T) {
 	if !(Broker{}).EmailAccepted() {
 		t.Error("broker without tags should accept email")

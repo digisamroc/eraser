@@ -8,11 +8,34 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"golang.org/x/net/html"
 )
+
+// ConfirmOutcome is what a confirmation page says happened.
+type ConfirmOutcome int
+
+const (
+	// ConfirmUnknown: the page doesn't clearly say either way (no signal, or
+	// mixed signals). The broker's status must not change.
+	ConfirmUnknown ConfirmOutcome = iota
+	ConfirmConfirmed
+	ConfirmFailed
+)
+
+func (o ConfirmOutcome) String() string {
+	switch o {
+	case ConfirmConfirmed:
+		return "confirmed"
+	case ConfirmFailed:
+		return "failed"
+	}
+	return "unknown"
+}
 
 // ConfirmationResult holds the outcome of clicking a confirmation link
 type ConfirmationResult struct {
-	Success      bool
+	Outcome      ConfirmOutcome
 	URL          string
 	FinalURL     string
 	StatusCode   int
@@ -93,86 +116,108 @@ func (h *ConfirmationHandler) ClickConfirmationLink(confirmURL string, allowed f
 	}
 	result.ResponseBody = string(body)
 
-	// Check for success indicators
-	result.Success = h.isSuccessResponse(resp.StatusCode, result.ResponseBody)
-
-	if !result.Success && result.ErrorMessage == "" {
-		result.ErrorMessage = fmt.Sprintf("confirmation may have failed (status %d)", resp.StatusCode)
+	result.Outcome = classifyConfirmation(resp.StatusCode, result.ResponseBody)
+	if result.Outcome == ConfirmFailed {
+		result.ErrorMessage = fmt.Sprintf("confirmation failed (status %d)", resp.StatusCode)
 	}
 
 	return result, nil
 }
 
-// isSuccessResponse checks if the response indicates successful confirmation
-func (h *ConfirmationHandler) isSuccessResponse(statusCode int, body string) bool {
-	// Check HTTP status
-	if statusCode < 200 || statusCode >= 400 {
+// Words a confirmation page uses when it worked, and when it didn't. Failure
+// words include negated and "already" forms of the success words, so a page
+// saying "not confirmed" or "already confirmed" has mixed signals.
+var (
+	confirmSuccessWords = []string{
+		"successfully", "confirmed", "verification complete", "verified",
+		"opt-out complete", "removal complete", "request received",
+		"has been removed", "been deleted", "been processed", "unsubscribed",
+		"opted out", "thank you for confirming", "thanks for confirming",
+	}
+	confirmFailureWords = []string{
+		"expired", "invalid", "error occurred", "something went wrong",
+		"could not", "unable to", "failed", "not confirmed", "not verified",
+		"unconfirmed", "unverified", "already",
+	}
+)
+
+// classifyConfirmation decides what a confirmation page says. A non-2xx
+// status failed. Otherwise only the page's visible text counts (not scripts
+// or styles): success words alone mean confirmed, failure words alone mean
+// failed, and both or neither mean unknown.
+func classifyConfirmation(statusCode int, body string) ConfirmOutcome {
+	if statusCode < 200 || statusCode >= 300 {
+		return ConfirmFailed
+	}
+	text := visibleText(body)
+	has := func(words []string) bool {
+		for _, w := range words {
+			if strings.Contains(text, w) {
+				return true
+			}
+		}
 		return false
 	}
-
-	bodyLower := strings.ToLower(body)
-
-	// Success indicators
-	successPatterns := []string{
-		"successfully",
-		"confirmed",
-		"verification complete",
-		"verified",
-		"opt-out complete",
-		"removal complete",
-		"request received",
-		"request confirmed",
-		"thank you",
-		"has been removed",
-		"been deleted",
-		"been processed",
-		"unsubscribed",
-		"opted out",
+	success, failure := has(confirmSuccessWords), has(confirmFailureWords)
+	switch {
+	case success && !failure:
+		return ConfirmConfirmed
+	case failure && !success:
+		return ConfirmFailed
 	}
+	return ConfirmUnknown
+}
 
-	for _, pattern := range successPatterns {
-		if strings.Contains(bodyLower, pattern) {
-			return true
+// visibleText returns the lowercased text of an HTML (or plain text) body,
+// without the contents of script, style, noscript and template elements.
+func visibleText(body string) string {
+	var b strings.Builder
+	z := html.NewTokenizer(strings.NewReader(body))
+	skip := 0
+	for {
+		switch z.Next() {
+		case html.ErrorToken:
+			return strings.ToLower(b.String())
+		case html.StartTagToken:
+			if hiddenElement(z) {
+				skip++
+			}
+		case html.EndTagToken:
+			if hiddenElement(z) && skip > 0 {
+				skip--
+			}
+		case html.TextToken:
+			if skip == 0 {
+				b.Write(z.Text())
+				b.WriteByte(' ')
+			}
 		}
 	}
+}
 
-	// Failure indicators (if these are present, it's NOT a success)
-	failurePatterns := []string{
-		"link expired",
-		"link invalid",
-		"already confirmed",
-		"error occurred",
-		"something went wrong",
-		"could not",
-		"unable to",
-		"failed",
+func hiddenElement(z *html.Tokenizer) bool {
+	name, _ := z.TagName()
+	switch string(name) {
+	case "script", "style", "noscript", "template":
+		return true
 	}
-
-	for _, pattern := range failurePatterns {
-		if strings.Contains(bodyLower, pattern) {
-			return false
-		}
-	}
-
-	// If status is 200 and no failure patterns, assume success
-	return statusCode == 200
+	return false
 }
 
 // ExtractConfirmationStatus extracts a human-readable status from the response
 func (h *ConfirmationHandler) ExtractConfirmationStatus(result *ConfirmationResult) string {
-	if result.Success {
+	switch result.Outcome {
+	case ConfirmConfirmed:
 		return "Confirmation successful"
+	case ConfirmUnknown:
+		return "The page doesn't say whether it worked; open the link yourself to check"
 	}
 
-	bodyLower := strings.ToLower(result.ResponseBody)
-
-	if strings.Contains(bodyLower, "expired") {
+	text := visibleText(result.ResponseBody)
+	if strings.Contains(text, "expired") {
 		return "Link expired"
 	}
-	if strings.Contains(bodyLower, "already") {
-		return "Already confirmed/processed"
-	}
-	if strings.Contains(bodyLower, "invalid") {
+	if strings.Contains(text, "invalid") {
 		return "Invalid link"
 	}
 	if result.StatusCode == 404 {
@@ -182,5 +227,5 @@ func (h *ConfirmationHandler) ExtractConfirmationStatus(result *ConfirmationResu
 		return "Server error"
 	}
 
-	return "Unknown status"
+	return "Confirmation failed"
 }

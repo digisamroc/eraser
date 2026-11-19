@@ -269,7 +269,7 @@ If a broker replies that it needs more information to find you, the reply is fla
 - **Verified emails only.** Links taken from your inbox are only used if the email's sender was verified (see Inbox Monitoring).
 - **Only what you disclose.** Forms get your name and email plus the fields in `options.disclose` and that broker's own `disclose` list. Nothing else is typed in.
 - **One form only.** Fields go into the form that matches your profile best, not a newsletter or search box elsewhere on the page, and only that form is submitted. If two forms match equally well, nothing is filled and you fill it by hand.
-- **No fake success.** The tool only reports "submitted" after clicking the form's own submit button. Without one, it tells you to submit by hand.
+- **No fake success.** The tool only reports "submitted" after clicking the form's own submit button. Without one, it tells you to submit by hand. `confirm` marks a broker confirmed only when the page's visible text clearly says it worked; if the page says nothing either way, or both, the broker's status is left alone and you're asked to open the link yourself.
 - **Private screenshots.** Screenshots of filled forms are saved owner-only in `~/.eraser/screenshots`.
 
 On Ubuntu 23.10+, Chrome may fail to start with "No usable sandbox". Allow unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=0` via `sysctl`), or install Chrome's AppArmor profile. Don't use `--no-sandbox`: the sandbox protects you from the sites `fill` opens.

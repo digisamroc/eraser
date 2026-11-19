@@ -334,8 +334,9 @@ Status: done.
 
 ## Phase 8 (optional): Contribute back
 
-Upstream looks inactive. We can still open small, separate PRs to upstream,
-e.g. the freemail fix or the registry importer, if you want to.
+Status: declined (2026-11-19). Nothing from this fork goes upstream; no PRs
+or issues are opened on `digisamroc/eraser`. The `upstream` remote stays
+fetch-only.
 
 ## Phase 9: Second review (2026-11-19)
 
@@ -623,7 +624,8 @@ Status: done. The CSP is now `script-src 'self'` (styles still allow
   Until Phase 3 lands, they print a warning and need `--i-understand-the-risk`.
 - **Web UI:** keep it and harden it (all of Phase 5).
 - **Registry scope:** California CPPA registry only.
-- **Upstream PRs:** still open. Decide in Phase 8.
+- **Upstream PRs:** declined (2026-11-19). Phase 8 is not done; nothing is
+  contributed upstream.
 - **Web UI access token (Phase 5, item 4):** declined (2026-11-19). It only
   protects against other OS users on the same machine; SECURITY.md's
   "don't run `serve` on a shared machine" warning covers that case.
@@ -631,6 +633,6 @@ Status: done. The CSP is now `script-src 'self'` (styles still allow
 ## Order
 
 0 → 1 → 2 → 6 → 5 → 3 → 4 → 7. Phases 0–2 plus 6 give a trustworthy
-CLI `send` first. The web UI and automation follow.
+CLI `send` first. The web UI and automation follow. Phase 8 is declined.
 
 Phase 9: 9A → 9B → 9C → 9D → 9E → 9F.

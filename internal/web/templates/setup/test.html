@@ -39,8 +39,8 @@
                     <span class="text-primary">{{.Profile.FirstName}} {{.Profile.LastName}}</span>
                     <span class="text-muted">Email:</span>
                     <span class="text-primary">{{.Profile.Email}}</span>
-                    <span class="text-muted">Provider:</span>
-                    <span class="text-primary">Gmail SMTP</span>
+                    <span class="text-muted">SMTP server:</span>
+                    <span class="text-primary">{{.Email.SMTP.Host}}:{{.Email.SMTP.Port}}</span>
                 </div>
             </div>
 

@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -238,14 +239,11 @@ func runInit() error {
 	cfg.Email.From = cfg.Profile.Email
 
 	fmt.Println()
-	fmt.Println("Gmail SMTP Configuration:")
-	fmt.Println("  (See https://support.google.com/accounts/answer/185833 for app password setup)")
+	fmt.Println("SMTP Configuration (any provider that offers SMTP works):")
+	fmt.Println("  Gmail: press Enter for the defaults and use an app password")
+	fmt.Println("  (see https://support.google.com/accounts/answer/185833)")
 	fmt.Println()
-	cfg.Email.SMTP.Host = "smtp.gmail.com"
-	cfg.Email.SMTP.Port = 465
-	cfg.Email.SMTP.UseTLS = true
-	cfg.Email.SMTP.Username = prompt(reader, "  Gmail address: ")
-	cfg.Email.SMTP.Password = promptSecret(reader, "  App password (16-character code, hidden): ")
+	cfg.Email.SMTP = promptSMTP(reader)
 
 	fmt.Println()
 	fmt.Println("⚙️  Options")
@@ -635,6 +633,29 @@ func runServe(port int) error {
 	}()
 
 	return server.Start()
+}
+
+// promptSMTP asks for the SMTP account, defaulting to Gmail. TLS is always on:
+// implicit TLS on 465, STARTTLS on other ports.
+func promptSMTP(reader *bufio.Reader) config.SMTPConfig {
+	smtp := config.SMTPConfig{Host: "smtp.gmail.com", Port: 465, UseTLS: true}
+	if host := prompt(reader, "  SMTP server [smtp.gmail.com]: "); host != "" {
+		smtp.Host = host
+	}
+	for {
+		answer := prompt(reader, "  Port (465 = TLS, 587 = STARTTLS) [465]: ")
+		if answer == "" {
+			break
+		}
+		if port, err := strconv.Atoi(answer); err == nil && port >= 1 && port <= 65535 {
+			smtp.Port = port
+			break
+		}
+		fmt.Println("  Enter a port between 1 and 65535.")
+	}
+	smtp.Username = prompt(reader, "  Username (usually your email address): ")
+	smtp.Password = promptSecret(reader, "  Password (for Gmail, the app password; hidden): ")
+	return smtp
 }
 
 func prompt(reader *bufio.Reader, message string) string {

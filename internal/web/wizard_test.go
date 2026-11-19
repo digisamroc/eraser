@@ -180,3 +180,73 @@ func TestConcurrentSettingsSavesKeepEachOther(t *testing.T) {
 		t.Errorf("memory has inbox %q, disk has %q", s.cfg().Inbox.Email, saved.Inbox.Email)
 	}
 }
+
+// startWizard posts the profile step and returns the session cookie.
+func startWizard(t *testing.T, h http.Handler) *http.Cookie {
+	t.Helper()
+	rec := postForm(h, "/setup/profile", url.Values{
+		"first_name": {"Janet"}, "last_name": {"Doe"}, "email": {"janet@example.com"},
+	})
+	if rec.Code != http.StatusFound {
+		t.Fatalf("profile: status %d: %s", rec.Code, rec.Body.String())
+	}
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == "eraser_session" {
+			return c
+		}
+	}
+	t.Fatal("no session cookie")
+	return nil
+}
+
+// The email step must work with any SMTP server, not just Gmail.
+func TestSetupEmailAcceptsAnySMTPServer(t *testing.T) {
+	s, h := newTestServer(t, testConfig())
+	cookie := startWizard(t, h)
+
+	page := do(h, http.MethodGet, "/setup/email", func(r *http.Request) { r.AddCookie(cookie) }).Body.String()
+	if strings.Contains(page, `type="hidden" name="smtp_host"`) || strings.Contains(page, `type="hidden" name="smtp_port"`) {
+		t.Fatal("SMTP host and port are hidden; users can't change them")
+	}
+	for _, want := range []string{`name="smtp_host"`, `name="smtp_port"`, `value="smtp.example.com"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("email step lacks %s", want)
+		}
+	}
+
+	rec := postForm(h, "/setup/email", url.Values{
+		"smtp_host": {"mail.privateemail.com"}, "smtp_port": {"587"}, "smtp_username": {"janet@example.com"},
+		"smtp_password": {"mailbox-password"}, "smtp_tls": {"on"},
+	}, cookie)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("email: status %d: %s", rec.Code, rec.Body.String())
+	}
+
+	page = do(h, http.MethodGet, "/setup/test", func(r *http.Request) { r.AddCookie(cookie) }).Body.String()
+	if !strings.Contains(page, "mail.privateemail.com:587") || strings.Contains(page, "Gmail") {
+		t.Error("test step doesn't show the chosen server")
+	}
+
+	if rec := postForm(h, "/setup/complete", nil, cookie); rec.Code != http.StatusOK {
+		t.Fatalf("complete: status %d", rec.Code)
+	}
+	got := s.cfg().Email.SMTP
+	if got.Host != "mail.privateemail.com" || got.Port != 587 || got.Password != "mailbox-password" || !got.UseTLS {
+		t.Errorf("saved SMTP = %+v", got)
+	}
+}
+
+func TestSetupEmailRejectsBadPort(t *testing.T) {
+	_, h := newTestServer(t, testConfig())
+	cookie := startWizard(t, h)
+
+	for _, port := range []string{"", "abc", "0", "-1", "70000"} {
+		rec := postForm(h, "/setup/email", url.Values{
+			"smtp_host": {"mail.example.com"}, "smtp_port": {port}, "smtp_username": {"janet@example.com"},
+			"smtp_password": {"pw"}, "smtp_tls": {"on"},
+		}, cookie)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "between 1 and 65535") {
+			t.Errorf("port %q: status %d; want the form again with a port error", port, rec.Code)
+		}
+	}
+}

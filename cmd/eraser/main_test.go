@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"net/url"
 	"strings"
@@ -87,5 +88,21 @@ func TestConfirmSend(t *testing.T) {
 				t.Fatalf("got %v, want error containing %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestPromptSMTP(t *testing.T) {
+	// Blank answers keep the Gmail defaults.
+	got := promptSMTP(bufio.NewReader(strings.NewReader("\n\njane@gmail.com\napp-pw\n")))
+	want := config.SMTPConfig{Host: "smtp.gmail.com", Port: 465, Username: "jane@gmail.com", Password: "app-pw", UseTLS: true}
+	if got != want {
+		t.Errorf("defaults: got %+v, want %+v", got, want)
+	}
+
+	// Any server works; a bad port is asked again.
+	got = promptSMTP(bufio.NewReader(strings.NewReader("mail.privateemail.com\n70000\nabc\n587\njane@example.com\npw\n")))
+	want = config.SMTPConfig{Host: "mail.privateemail.com", Port: 587, Username: "jane@example.com", Password: "pw", UseTLS: true}
+	if got != want {
+		t.Errorf("custom: got %+v, want %+v", got, want)
 	}
 }

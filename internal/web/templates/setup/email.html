@@ -23,7 +23,7 @@
 
             <!-- Header -->
             <div class="text-center mb-6">
-                <h1 class="font-display text-2xl font-bold text-primary mb-2">Connect Your Gmail</h1>
+                <h1 class="font-display text-2xl font-bold text-primary mb-2">Connect Your Email</h1>
                 <p class="text-secondary">We'll send removal requests from your email</p>
             </div>
 
@@ -33,7 +33,7 @@
                     <svg class="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
                     </svg>
-                    Before you start
+                    Using Gmail?
                 </h3>
 
                 <div class="space-y-4">
@@ -70,7 +70,7 @@
                         <div class="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold" style="background: var(--accent-muted); color: var(--accent);">3</div>
                         <div class="flex-1">
                             <p class="text-primary font-medium text-sm">Enter your credentials below</p>
-                            <p class="text-muted text-sm mt-1">Use your Gmail address and the 16-character app password</p>
+                            <p class="text-muted text-sm mt-1">Use your Gmail address and the 16-character app password, with server smtp.gmail.com and port 465</p>
                         </div>
                     </div>
                 </div>
@@ -78,35 +78,62 @@
 
             <form method="POST" action="/setup/email" class="space-y-5">
 
-                <!-- Gmail Address -->
+                <p class="text-sm text-muted">
+                    Any provider that offers SMTP works. Your provider's mail settings list the server and port.
+                </p>
+
+                <!-- SMTP Server -->
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="col-span-2">
+                        <label for="smtp_host" class="label">SMTP Server</label>
+                        <input type="text" name="smtp_host" id="smtp_host"
+                            value="{{.Email.SMTP.Host}}"
+                            class="input {{if .Errors.smtp_host}}border-error{{end}}"
+                            placeholder="smtp.gmail.com" autocapitalize="off" spellcheck="false">
+                        {{if .Errors.smtp_host}}
+                        <p class="mt-1 text-sm text-error">{{.Errors.smtp_host}}</p>
+                        {{end}}
+                    </div>
+                    <div>
+                        <label for="smtp_port" class="label">Port</label>
+                        <input type="number" name="smtp_port" id="smtp_port" min="1" max="65535"
+                            value="{{if .Email.SMTP.Port}}{{.Email.SMTP.Port}}{{end}}"
+                            class="input {{if .Errors.smtp_port}}border-error{{end}}"
+                            placeholder="465">
+                        {{if .Errors.smtp_port}}
+                        <p class="mt-1 text-sm text-error">{{.Errors.smtp_port}}</p>
+                        {{end}}
+                    </div>
+                </div>
+                <p class="text-xs text-muted">Port 465 uses TLS; 587 uses STARTTLS. Eraser never sends your password unencrypted.</p>
+
+                <!-- Username -->
                 <div>
-                    <label for="smtp_username" class="label">Gmail Address</label>
-                    <input type="email" name="smtp_username" id="smtp_username"
-                        value="{{.Email.SMTP.Username}}"
+                    <label for="smtp_username" class="label">Username</label>
+                    <input type="text" name="smtp_username" id="smtp_username"
+                        value="{{.Email.SMTP.Username}}" autocomplete="username" autocapitalize="off" spellcheck="false"
                         class="input {{if .Errors.smtp_username}}border-error{{end}}"
-                        placeholder="you@gmail.com">
+                        placeholder="you@example.com">
                     {{if .Errors.smtp_username}}
                     <p class="mt-1 text-sm text-error">{{.Errors.smtp_username}}</p>
                     {{end}}
+                    <p class="mt-1 text-xs text-muted">Usually your full email address</p>
                 </div>
 
-                <!-- App Password -->
+                <!-- Password -->
                 <div>
-                    <label for="smtp_password" class="label">App Password</label>
+                    <label for="smtp_password" class="label">Password</label>
                     {{/* Never render a stored password; only say whether one is saved. */}}
                     <input type="password" name="smtp_password" id="smtp_password"
                         value="" autocomplete="new-password"
                         class="input {{if .Errors.smtp_password}}border-error{{end}}"
-                        placeholder="{{if .Email.SMTP.Password}}Saved. Leave blank to keep it{{else}}xxxx xxxx xxxx xxxx{{end}}">
+                        placeholder="{{if .Email.SMTP.Password}}Saved. Leave blank to keep it{{end}}">
                     {{if .Errors.smtp_password}}
                     <p class="mt-1 text-sm text-error">{{.Errors.smtp_password}}</p>
                     {{end}}
-                    <p class="mt-1 text-xs text-muted">The 16-character password from step 2 (not your regular Gmail password)</p>
+                    <p class="mt-1 text-xs text-muted">For Gmail, the app password from step 2, not your regular password</p>
                 </div>
 
-                <!-- Hidden SMTP defaults for Gmail -->
-                <input type="hidden" name="smtp_host" value="{{if .Email.SMTP.Host}}{{.Email.SMTP.Host}}{{else}}smtp.gmail.com{{end}}">
-                <input type="hidden" name="smtp_port" value="{{if .Email.SMTP.Port}}{{.Email.SMTP.Port}}{{else}}465{{end}}">
                 <input type="hidden" name="smtp_tls" value="on">
 
                 {{if .Errors.smtp_tls}}

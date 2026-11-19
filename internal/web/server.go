@@ -1267,9 +1267,9 @@ func (s *Server) handleSetupEmail(w http.ResponseWriter, r *http.Request) {
 
 		errors := make(map[string]string)
 
-		// Parse SMTP configuration (Gmail SMTP)
+		// Parse SMTP configuration
 		emailCfg.SMTP.Host = strings.TrimSpace(r.FormValue("smtp_host"))
-		emailCfg.SMTP.Port, _ = strconv.Atoi(strings.TrimSpace(r.FormValue("smtp_port"))) // invalid -> 0 -> "port is required"
+		emailCfg.SMTP.Port, _ = strconv.Atoi(strings.TrimSpace(r.FormValue("smtp_port"))) // invalid -> 0 -> rejected below
 		emailCfg.SMTP.Username = strings.TrimSpace(r.FormValue("smtp_username"))
 		emailCfg.SMTP.Password = strings.TrimSpace(r.FormValue("smtp_password"))
 		emailCfg.SMTP.UseTLS = r.FormValue("smtp_tls") == "on"
@@ -1286,23 +1286,23 @@ func (s *Server) handleSetupEmail(w http.ResponseWriter, r *http.Request) {
 		if emailCfg.SMTP.Host == "" {
 			errors["smtp_host"] = "SMTP host is required"
 		}
-		if emailCfg.SMTP.Port == 0 {
-			errors["smtp_port"] = "SMTP port is required"
+		if emailCfg.SMTP.Port < 1 || emailCfg.SMTP.Port > 65535 {
+			errors["smtp_port"] = "Enter a port between 1 and 65535"
 		}
 		if emailCfg.SMTP.Username == "" {
-			errors["smtp_username"] = "Gmail address is required"
+			errors["smtp_username"] = "Username is required"
 		}
 		if emailCfg.SMTP.Password == "" {
-			errors["smtp_password"] = "App password is required"
+			errors["smtp_password"] = "Password is required"
 		}
 		// Enforce TLS when using authentication
 		if !emailCfg.SMTP.UseTLS && emailCfg.SMTP.Username != "" {
-			errors["smtp_tls"] = "TLS is required for Gmail"
+			errors["smtp_tls"] = "TLS is required"
 		}
 
 		if len(errors) > 0 {
 			data := map[string]interface{}{
-				"Title":   "Setup - Gmail",
+				"Title":   "Setup - Email",
 				"Step":    "email",
 				"Profile": session.Profile,
 				"Email":   emailCfg,
@@ -1321,7 +1321,7 @@ func (s *Server) handleSetupEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set Gmail defaults for new setups
+	// Default to Gmail for new setups; the form lets users change the server
 	emailCfg := session.Email
 	if emailCfg.SMTP.Host == "" {
 		emailCfg.SMTP.Host = "smtp.gmail.com"
@@ -1330,7 +1330,7 @@ func (s *Server) handleSetupEmail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]interface{}{
-		"Title":   "Setup - Gmail",
+		"Title":   "Setup - Email",
 		"Step":    "email",
 		"Profile": session.Profile,
 		"Email":   emailCfg,

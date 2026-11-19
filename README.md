@@ -21,7 +21,7 @@ If you're not comfortable with command-line tools, Eraser has a visual interface
 ### What You'll Need
 
 1. **Go** installed on your computer ([download here](https://go.dev/dl/))
-2. A **Gmail account** to send emails from (with an App Password—setup instructions below)
+2. An **email account with SMTP access** to send from. Gmail works (with an App Password, setup below), and so does any other provider that offers SMTP, such as Fastmail, Proton (via Bridge) or Namecheap Private Email
 
 ### Getting Started
 
@@ -45,7 +45,7 @@ Open your browser and go to `http://localhost:8080`
 
 **Step 3: Complete the Setup Wizard**
 
-The wizard walks you through entering your personal information (the data brokers need this to find your records) and setting up email. Just follow the prompts.
+The wizard walks you through entering your personal information (the data brokers need this to find your records) and setting up email. It starts with Gmail's server (`smtp.gmail.com`, port 465); for another provider, enter its SMTP server and port from its mail settings. Port 465 uses TLS and 587 uses STARTTLS.
 
 **Step 4: Send Removal Requests**
 

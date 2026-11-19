@@ -77,12 +77,35 @@ type EmailConfig struct {
 
 type Email = EmailConfig
 
+// SMTP TLS modes. With use_tls and no tls_mode, port 465 means implicit TLS
+// and any other port means STARTTLS.
+const (
+	TLSNone     = "none"
+	TLSImplicit = "implicit"
+	TLSStartTLS = "starttls"
+)
+
 type SMTPConfig struct {
 	Host     string `yaml:"host"`
 	Port     int    `yaml:"port"`
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
 	UseTLS   bool   `yaml:"use_tls"`
+	TLSMode  string `yaml:"tls_mode,omitempty"` // "implicit" or "starttls"; default chosen by port
+}
+
+// EffectiveTLSMode resolves use_tls, tls_mode, and port into one mode.
+func (c SMTPConfig) EffectiveTLSMode() string {
+	switch {
+	case !c.UseTLS:
+		return TLSNone
+	case c.TLSMode != "":
+		return c.TLSMode
+	case c.Port == 465:
+		return TLSImplicit
+	default:
+		return TLSStartTLS
+	}
 }
 
 type Options struct {
@@ -91,6 +114,7 @@ type Options struct {
 	RateLimitMs     int      `yaml:"rate_limit_ms"`
 	Regions         []string `yaml:"regions"`
 	ExcludedBrokers []string `yaml:"excluded_brokers,omitempty"`
+	Disclose        []string `yaml:"disclose,omitempty"` // optional profile fields to include in emails
 }
 
 func DefaultConfigPath() string {
@@ -182,6 +206,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Email.SMTP.Port == 0 {
 		return fmt.Errorf("email.smtp: port is required")
+	}
+	switch c.Email.SMTP.TLSMode {
+	case "", TLSImplicit, TLSStartTLS:
+	default:
+		return fmt.Errorf("email.smtp: unknown tls_mode %q (want %q or %q)", c.Email.SMTP.TLSMode, TLSImplicit, TLSStartTLS)
+	}
+	if _, err := c.Options.Disclosure(); err != nil {
+		return err
 	}
 
 	return nil

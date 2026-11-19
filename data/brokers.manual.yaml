@@ -8,7 +8,9 @@
 #
 #   add:       brokers that are not in the registry
 #   overrides: changes to a registry entry, matched by email
-#              (category, opt_out_url, notes, tags: [form-only])
+#              (category, opt_out_url, notes, tags: [form-only],
+#               disclose: extra profile fields this broker needs, e.g.
+#               [date_of_birth]; cite the broker's request or privacy page)
 #   exclude:   registry entries to drop, matched by email (reason required)
 
 add: []

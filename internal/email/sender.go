@@ -10,10 +10,11 @@ import (
 )
 
 type Message struct {
-	To      string
-	From    string
-	Subject string
-	Body    string
+	To       string
+	From     string
+	FromName string // display name for the From header; may be empty
+	Subject  string
+	Body     string
 }
 
 type Result struct {

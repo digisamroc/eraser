@@ -59,7 +59,9 @@ Three email templates are available:
 1. Load user config from `~/.eraser/config.yaml`
 2. Load brokers from `data/brokers.yaml`
 3. Filter by region and exclusions
-4. For each broker, render email template with user + broker data
+4. For each broker, render email template with user + broker data. `Render`
+   requires a `config.Disclosure`: only name, email, the fields in
+   `options.disclose`, and the broker's own `disclose` list reach the email
 5. Send via SMTP or SendGrid
 6. Record result in SQLite history
 

@@ -194,6 +194,23 @@ func TestBuildManualExcludeAndOverride(t *testing.T) {
 	}
 }
 
+func TestBuildOverrideDisclose(t *testing.T) {
+	entries := []Entry{{RegistryID: "1", Name: "Needs DOB Co", Email: "privacy@dob.example"}}
+	m := Manual{Overrides: []Override{{
+		Email: "privacy@dob.example", Disclose: []string{"date_of_birth"},
+		SourceURL: "https://dob.example/privacy",
+	}}}
+	db, _ := build(t, entries, m)
+	if got := db.Brokers[0].Disclose; len(got) != 1 || got[0] != "date_of_birth" {
+		t.Fatalf("disclose = %v", got)
+	}
+
+	m.Overrides[0].Disclose = []string{"ssn"}
+	if _, _, err := Build(entries, m, Options{}); err == nil {
+		t.Fatal("expected error for invalid disclose value")
+	}
+}
+
 func TestBuildManualAdd(t *testing.T) {
 	add := broker.Broker{ID: "people-finder", Name: "People Finder", Email: "privacy@peoplefinder.example", Region: "us", Category: "people-search", SourceURL: "https://peoplefinder.example/privacy"}
 	db, _ := build(t, []Entry{{RegistryID: "1", Name: "Keep Co", Email: "privacy@keep.com"}}, Manual{Add: []broker.Broker{add}})

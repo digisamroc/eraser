@@ -294,6 +294,16 @@ func runSend() error {
 		fmt.Println()
 	}
 
+	disclose, err := cfg.Options.Disclosure()
+	if err != nil {
+		return fmt.Errorf("invalid config: %w", err)
+	}
+	fmt.Printf("🔒 Sending: %s\n", strings.Join(disclose.Fields(), ", "))
+	if withheld := disclose.Withheld(cfg.Profile); len(withheld) > 0 {
+		fmt.Printf("   Withheld: %s (add to options.disclose to send; some brokers add more via their own disclose list)\n", strings.Join(withheld, ", "))
+	}
+	fmt.Println()
+
 	fmt.Printf("📤 Processing %d brokers...\n", len(brokers))
 	fmt.Println()
 
@@ -304,7 +314,7 @@ func runSend() error {
 		fmt.Printf("[%d/%d] %s (%s)\n", i+1, len(brokers), b.Name, b.Email)
 
 		// Render email
-		emailMsg, err := tmplEngine.Render(cfg.Options.Template, cfg.Profile, b)
+		emailMsg, err := tmplEngine.Render(cfg.Options.Template, cfg.Profile, disclose, b)
 		if err != nil {
 			fmt.Printf("  ❌ Failed to render template: %v\n", err)
 			failCount++
@@ -314,14 +324,18 @@ func runSend() error {
 		if cfg.Options.DryRun {
 			fmt.Printf("  📧 Would send: %s\n", emailMsg.Subject)
 			fmt.Printf("  📍 To: %s\n", b.Email)
+			if len(b.Disclose) > 0 {
+				fmt.Printf("  🔓 This broker also gets: %s\n", strings.Join(b.Disclose, ", "))
+			}
 			successCount++
 		} else {
 			// Send email
 			msg := email.Message{
-				To:      b.Email,
-				From:    cfg.Email.From,
-				Subject: emailMsg.Subject,
-				Body:    emailMsg.Body,
+				To:       b.Email,
+				From:     cfg.Email.From,
+				FromName: cfg.Profile.FullName(),
+				Subject:  emailMsg.Subject,
+				Body:     emailMsg.Body,
 			}
 
 			ctx := context.WithValue(context.Background(), "sequence", i)

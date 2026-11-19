@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/eraser-privacy/eraser/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -68,6 +69,7 @@ type Broker struct {
 	Source     string   `yaml:"source,omitempty"`      // Where this entry came from, e.g. "ca-cppa" or "manual"
 	SourceURL  string   `yaml:"source_url,omitempty"`  // Page that backs up the contact details
 	RegistryID string   `yaml:"registry_id,omitempty"` // ID in the source registry
+	Disclose   []string `yaml:"disclose,omitempty"`    // extra profile fields this broker needs (config.Disclose* values)
 }
 
 // EmailAccepted reports whether the broker processes emailed removal requests.
@@ -118,6 +120,9 @@ func (b Broker) Validate() error {
 	}
 	if b.Category != "" && !validCategories[b.Category] {
 		return fmt.Errorf("%s: unknown category %q", b.ID, b.Category)
+	}
+	if _, err := config.ParseDisclosure(b.Disclose); err != nil {
+		return fmt.Errorf("%s: %w", b.ID, err)
 	}
 	return nil
 }

@@ -7,7 +7,8 @@ profile:
   last_name: Doe
   email: john.doe@example.com
 
-  # Optional: Additional info helps brokers locate your records
+  # Optional. These are stored locally and are NOT sent to brokers unless
+  # listed in options.disclose below (or a broker's own disclose list).
   address: "123 Main Street"
   city: "San Francisco"
   state: "CA"
@@ -17,25 +18,34 @@ profile:
   date_of_birth: "1990-01-15"  # Format: YYYY-MM-DD
 
 email:
-  # Email provider: "smtp" or "sendgrid"
+  # Email provider: only "smtp" is supported
   provider: smtp
   from: john.doe@example.com
 
   # SMTP configuration (for Gmail, Outlook, etc.)
   smtp:
     host: smtp.gmail.com
-    port: 465
+    port: 465            # 465 = implicit TLS; 587 = STARTTLS
     username: john.doe@gmail.com
     password: your-app-password  # Use app password, not your regular password!
-    use_tls: true
-
-  # SendGrid configuration (alternative to SMTP)
-  # sendgrid:
-  #   api_key: SG.xxxxxxxxxxxxxxxxxxxx
+    use_tls: true        # required when username is set; never falls back to plaintext
+    # tls_mode: starttls # only needed to override the port-based default
 
 options:
   # Template to use: "gdpr", "ccpa", or "generic"
   template: generic
+
+  # Profile fields to include in removal emails. Name and email are always
+  # sent; nothing else is unless listed here. Two data points are generally
+  # enough for a broker to verify a deletion request, so start with none and
+  # add only if brokers ask. Brokers that need more can also be configured
+  # individually in data/brokers.manual.yaml.
+  #   location        city, state, ZIP/postal code, country
+  #   street_address  street address (also sends location)
+  #   phone
+  #   date_of_birth
+  # disclose:
+  #   - location
 
   # Delay between emails in milliseconds (avoid spam filters)
   rate_limit_ms: 2000

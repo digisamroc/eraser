@@ -2,6 +2,7 @@ package inbox
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -13,13 +14,25 @@ import (
 	"github.com/emersion/go-message/mail"
 	"github.com/eraser-privacy/eraser/internal/broker"
 	"github.com/eraser-privacy/eraser/internal/config"
+	"golang.org/x/net/publicsuffix"
 )
 
-// Monitor handles IMAP connection and email monitoring
+// fetchBatch bounds the number of UIDs in one FETCH command.
+const fetchBatch = 100
+
+// Monitor handles IMAP connection and email monitoring.
+//
+// Privacy rules: mailboxes are opened read-only (EXAMINE) when fetching, so
+// no flags change and nothing is marked as read; only envelopes are fetched
+// for recent mail, and full bodies are downloaded (with BODY.PEEK) only for
+// messages that match a broker.
 type Monitor struct {
-	config  config.InboxConfig
-	client  *client.Client
-	brokers map[string]broker.Broker // Map of email domain to broker
+	config     config.InboxConfig
+	client     *client.Client
+	brokers    map[string]broker.Broker // registered email/website domain -> broker
+	brokerByID map[string]broker.Broker
+	sentIDs    map[string]string // Message-ID of a sent request -> broker ID
+	tlsConfig  *tls.Config       // nil uses the system roots; set by tests
 }
 
 // Email represents a parsed email from a broker
@@ -35,34 +48,45 @@ type Email struct {
 	ReceivedAt time.Time
 	BrokerID   string // Matched broker ID (if found)
 	BrokerName string // Matched broker name (if found)
+	Folder     string // Mailbox the message was fetched from; UIDs are per-folder
+	InReplyTo  string
+	// Authenticated is true when the user's mail provider verified the sender
+	// (see Authenticated). Links are only extracted from authenticated email.
+	Authenticated bool
 }
 
-// NewMonitor creates a new inbox monitor
+// NewMonitor creates a new inbox monitor. Personal mailbox domains (Gmail,
+// Outlook, ...) are never mapped to a broker, so personal mail can't match.
 func NewMonitor(cfg config.InboxConfig, brokerList []broker.Broker) *Monitor {
-	// Build a map of email domains to brokers for quick lookup
-	brokerMap := make(map[string]broker.Broker)
+	m := &Monitor{
+		config:     cfg,
+		brokers:    make(map[string]broker.Broker),
+		brokerByID: make(map[string]broker.Broker),
+	}
 	for _, b := range brokerList {
-		// Extract domain from broker email
-		if b.Email != "" {
-			parts := strings.Split(b.Email, "@")
-			if len(parts) == 2 {
-				domain := strings.ToLower(parts[1])
-				brokerMap[domain] = b
+		m.brokerByID[b.ID] = b
+		for _, d := range []string{emailDomain(b.Email), extractDomain(b.Website)} {
+			if d == "" || broker.IsFreemailDomain(d) {
+				continue
 			}
-		}
-		// Also map by website domain
-		if b.Website != "" {
-			domain := extractDomain(b.Website)
-			if domain != "" {
-				brokerMap[domain] = b
-			}
+			m.brokers[d] = b
 		}
 	}
+	return m
+}
 
-	return &Monitor{
-		config:  cfg,
-		brokers: brokerMap,
+// SetSentMessageIDs supplies Message-IDs of sent requests (from history), so
+// a reply can be matched to its broker by In-Reply-To even when it comes from
+// a help-desk domain. Message-IDs are random and only the broker saw them.
+func (m *Monitor) SetSentMessageIDs(ids map[string]string) {
+	m.sentIDs = ids
+}
+
+func emailDomain(addr string) string {
+	if i := strings.LastIndex(addr, "@"); i >= 0 {
+		return strings.ToLower(addr[i+1:])
 	}
+	return ""
 }
 
 // extractDomain extracts the domain from a URL
@@ -77,26 +101,58 @@ func extractDomain(url string) string {
 	return ""
 }
 
+// matchBroker finds the broker for a sender domain: an exact match, or a
+// subdomain of a registered domain, walking up no further than the
+// organizational domain (so "evil.co.uk" can never match "co.uk").
+func (m *Monitor) matchBroker(domain string) (broker.Broker, bool) {
+	d := strings.ToLower(strings.TrimSpace(domain))
+	if d == "" || broker.IsFreemailDomain(d) {
+		return broker.Broker{}, false
+	}
+	org, err := publicsuffix.EffectiveTLDPlusOne(d)
+	if err != nil {
+		return broker.Broker{}, false
+	}
+	for {
+		if b, ok := m.brokers[d]; ok {
+			return b, true
+		}
+		if d == org {
+			return broker.Broker{}, false
+		}
+		i := strings.IndexByte(d, '.')
+		if i < 0 {
+			return broker.Broker{}, false
+		}
+		d = d[i+1:]
+	}
+}
+
+func (m *Monitor) assignBroker(e *Email) {
+	if id, ok := m.sentIDs[e.InReplyTo]; ok {
+		if b, ok := m.brokerByID[id]; ok {
+			e.BrokerID, e.BrokerName = b.ID, b.Name
+			return
+		}
+	}
+	if b, ok := m.matchBroker(e.FromDomain); ok {
+		e.BrokerID, e.BrokerName = b.ID, b.Name
+	}
+}
+
 // Connect establishes IMAP connection
 func (m *Monitor) Connect(ctx context.Context) error {
 	addr := fmt.Sprintf("%s:%d", m.config.Server, m.config.Port)
 
-	log.Printf("Connecting to IMAP server %s...", addr)
-
-	c, err := client.DialTLS(addr, nil)
+	c, err := client.DialTLS(addr, m.tlsConfig)
 	if err != nil {
 		return fmt.Errorf("failed to connect to IMAP server: %w", err)
 	}
-
-	log.Printf("Connected, logging in as %s...", m.config.Email)
-
 	if err := c.Login(m.config.Email, m.config.Password); err != nil {
-		c.Logout()
+		_ = c.Logout()
 		return fmt.Errorf("failed to login: %w", err)
 	}
-
 	m.client = c
-	log.Printf("Login successful")
 	return nil
 }
 
@@ -108,355 +164,248 @@ func (m *Monitor) Disconnect() error {
 	return nil
 }
 
-// FetchRecentEmails fetches emails from the last N days
-func (m *Monitor) FetchRecentEmails(ctx context.Context, days int) ([]Email, error) {
-	if m.client == nil {
-		return nil, fmt.Errorf("not connected to IMAP server")
-	}
-
-	// Select the mailbox (usually INBOX)
-	mbox, err := m.client.Select(m.config.Folder, false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to select mailbox %s: %w", m.config.Folder, err)
-	}
-
-	log.Printf("Mailbox %s has %d messages", m.config.Folder, mbox.Messages)
-
-	if mbox.Messages == 0 {
-		return nil, nil
-	}
-
-	// Search for emails from the last N days (use UID search)
-	since := time.Now().AddDate(0, 0, -days)
-	criteria := imap.NewSearchCriteria()
-	criteria.Since = since
-
-	uids, err := m.client.UidSearch(criteria)
-	if err != nil {
-		return nil, fmt.Errorf("failed to search emails: %w", err)
-	}
-
-	log.Printf("Found %d emails since %s", len(uids), since.Format("2006-01-02"))
-
-	if len(uids) == 0 {
-		return nil, nil
-	}
-
-	// Fetch the messages using UIDs
-	seqSet := new(imap.SeqSet)
-	seqSet.AddNum(uids...)
-
-	// Fetch envelope, body, and UID
-	section := &imap.BodySectionName{}
-	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchFlags, imap.FetchUid, section.FetchItem()}
-
-	messages := make(chan *imap.Message, len(uids))
-	done := make(chan error, 1)
-	go func() {
-		done <- m.client.UidFetch(seqSet, items, messages)
-	}()
-
-	var emails []Email
-	for msg := range messages {
-		email, err := m.parseMessage(msg, section)
-		if err != nil {
-			log.Printf("Warning: failed to parse message: %v", err)
-			continue
-		}
-		if email != nil {
-			emails = append(emails, *email)
-		}
-	}
-
-	if err := <-done; err != nil {
-		return nil, fmt.Errorf("failed to fetch messages: %w", err)
-	}
-
-	return emails, nil
+// FetchBrokerEmails fetches broker emails from the configured folder.
+func (m *Monitor) FetchBrokerEmails(ctx context.Context, days int) ([]Email, error) {
+	return m.FetchBrokerEmailsFromFolder(ctx, m.config.Folder, days)
 }
 
-// parseMessage converts an IMAP message to our Email struct
-func (m *Monitor) parseMessage(msg *imap.Message, section *imap.BodySectionName) (*Email, error) {
-	if msg == nil || msg.Envelope == nil {
-		return nil, nil
+// FetchBrokerEmailsFromFolder fetches broker emails from the last N days.
+func (m *Monitor) FetchBrokerEmailsFromFolder(ctx context.Context, folder string, days int) ([]Email, error) {
+	criteria := imap.NewSearchCriteria()
+	criteria.Since = time.Now().AddDate(0, 0, -days)
+	emails, _, err := m.fetch(ctx, folder, criteria, isBrokerEmail)
+	return emails, err
+}
+
+// FetchBounceEmails fetches recent bounce/undeliverable notifications.
+func (m *Monitor) FetchBounceEmails(ctx context.Context, days int) ([]Email, error) {
+	criteria := imap.NewSearchCriteria()
+	criteria.Since = time.Now().AddDate(0, 0, -days)
+	emails, _, err := m.fetch(ctx, m.config.Folder, criteria, isBounceEnvelope)
+	return emails, err
+}
+
+// fetchSince returns broker emails with UID >= from (0 means all) and the
+// folder's next UID, for incremental polling.
+func (m *Monitor) fetchSince(ctx context.Context, folder string, from uint32) ([]Email, uint32, error) {
+	criteria := imap.NewSearchCriteria()
+	set := new(imap.SeqSet)
+	set.AddRange(max(from, 1), 0) // "from:*"
+	criteria.Uid = set
+	emails, next, err := m.fetch(ctx, folder, criteria, func(e *Email) bool {
+		// "N:*" also matches the highest UID when it is below N.
+		return e.UID >= from && isBrokerEmail(e)
+	})
+	return emails, next, err
+}
+
+func isBrokerEmail(e *Email) bool { return e.BrokerID != "" }
+
+// fetch runs a search in folder, keeps messages whose envelope passes keep,
+// and downloads full bodies only for those. It returns the folder's UIDNEXT.
+func (m *Monitor) fetch(ctx context.Context, folder string, criteria *imap.SearchCriteria, keep func(*Email) bool) ([]Email, uint32, error) {
+	if m.client == nil {
+		return nil, 0, fmt.Errorf("not connected to IMAP server")
+	}
+	// Read-only (EXAMINE): the server cannot change any flags.
+	mbox, err := m.client.Select(folder, true)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to select mailbox %s: %w", folder, err)
+	}
+	uids, err := m.client.UidSearch(criteria)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to search %s: %w", folder, err)
 	}
 
-	email := &Email{
+	// Pass 1: envelopes only.
+	var kept []*Email
+	err = m.uidFetch(uids, []imap.FetchItem{imap.FetchEnvelope, imap.FetchUid}, func(msg *imap.Message) {
+		if msg.Envelope == nil {
+			return
+		}
+		e := emailFromEnvelope(msg)
+		e.Folder = folder
+		m.assignBroker(e)
+		if keep(e) {
+			kept = append(kept, e)
+		}
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch envelopes from %s: %w", folder, err)
+	}
+
+	// Pass 2: full bodies for kept messages only, without setting \Seen.
+	byUID := make(map[uint32]*Email, len(kept))
+	keptUIDs := make([]uint32, 0, len(kept))
+	for _, e := range kept {
+		byUID[e.UID] = e
+		keptUIDs = append(keptUIDs, e.UID)
+	}
+	section := &imap.BodySectionName{Peek: true}
+	err = m.uidFetch(keptUIDs, []imap.FetchItem{section.FetchItem(), imap.FetchUid}, func(msg *imap.Message) {
+		if e := byUID[msg.Uid]; e != nil {
+			if r := msg.GetBody(section); r != nil {
+				parseBody(e, r)
+			}
+		}
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch bodies from %s: %w", folder, err)
+	}
+
+	out := make([]Email, 0, len(kept))
+	for _, e := range kept {
+		out = append(out, *e)
+	}
+	return out, mbox.UidNext, nil
+}
+
+// uidFetch fetches items for uids in batches and calls fn for each message.
+func (m *Monitor) uidFetch(uids []uint32, items []imap.FetchItem, fn func(*imap.Message)) error {
+	for start := 0; start < len(uids); start += fetchBatch {
+		set := new(imap.SeqSet)
+		set.AddNum(uids[start:min(start+fetchBatch, len(uids))]...)
+
+		messages := make(chan *imap.Message, fetchBatch)
+		done := make(chan error, 1)
+		go func() { done <- m.client.UidFetch(set, items, messages) }()
+		for msg := range messages {
+			fn(msg)
+		}
+		if err := <-done; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func emailFromEnvelope(msg *imap.Message) *Email {
+	env := msg.Envelope
+	e := &Email{
 		UID:        msg.Uid,
-		Subject:    msg.Envelope.Subject,
-		ReceivedAt: msg.Envelope.Date,
+		Subject:    env.Subject,
+		ReceivedAt: env.Date,
+		MessageID:  env.MessageId,
+		InReplyTo:  strings.TrimSpace(env.InReplyTo),
 	}
-
-	// Get message ID
-	if msg.Envelope.MessageId != "" {
-		email.MessageID = msg.Envelope.MessageId
+	if len(env.From) > 0 {
+		from := env.From[0]
+		e.From = from.Address()
+		e.FromName = from.PersonalName
+		e.FromDomain = strings.ToLower(from.HostName)
 	}
+	return e
+}
 
-	// Get sender
-	if len(msg.Envelope.From) > 0 {
-		from := msg.Envelope.From[0]
-		email.From = from.Address()
-		email.FromName = from.PersonalName
-		if from.HostName != "" {
-			email.FromDomain = strings.ToLower(from.HostName)
-		}
-	}
-
-	// Try to match to a known broker
-	if email.FromDomain != "" {
-		if b, ok := m.brokers[email.FromDomain]; ok {
-			email.BrokerID = b.ID
-			email.BrokerName = b.Name
-		}
-	}
-
-	// Parse body
-	r := msg.GetBody(section)
-	if r == nil {
-		return email, nil
-	}
-
+// parseBody fills in the authentication result and text parts.
+func parseBody(e *Email, r io.Reader) {
 	mr, err := mail.CreateReader(r)
 	if err != nil {
-		return email, nil // Return without body on parse error
+		return // unparseable: stays unauthenticated with no body
 	}
+	// Header.Get returns the first (topmost) occurrence: the one added by the
+	// user's own provider. Lower ones can be forged by the sender.
+	e.Authenticated = Authenticated(mr.Header.Get("Authentication-Results"), e.FromDomain)
 
-	// Process each part
 	for {
 		p, err := mr.NextPart()
-		if err == io.EOF {
-			break
-		}
 		if err != nil {
-			break
+			break // io.EOF or a malformed part
 		}
-
-		switch h := p.Header.(type) {
-		case *mail.InlineHeader:
-			ct, _, _ := h.ContentType()
-			body, _ := io.ReadAll(p.Body)
-
-			if strings.HasPrefix(ct, "text/plain") && email.Body == "" {
-				email.Body = string(body)
-			} else if strings.HasPrefix(ct, "text/html") && email.HTMLBody == "" {
-				email.HTMLBody = string(body)
-			}
+		h, ok := p.Header.(*mail.InlineHeader)
+		if !ok {
+			continue
+		}
+		ct, _, _ := h.ContentType()
+		body, _ := io.ReadAll(p.Body)
+		if strings.HasPrefix(ct, "text/plain") && e.Body == "" {
+			e.Body = string(body)
+		} else if strings.HasPrefix(ct, "text/html") && e.HTMLBody == "" {
+			e.HTMLBody = string(body)
 		}
 	}
-
-	return email, nil
 }
 
-// FetchBrokerEmails fetches only emails from known broker domains
-func (m *Monitor) FetchBrokerEmails(ctx context.Context, days int) ([]Email, error) {
-	allEmails, err := m.FetchRecentEmails(ctx, days)
-	if err != nil {
-		return nil, err
-	}
-
-	var brokerEmails []Email
-	for _, email := range allEmails {
-		if email.BrokerID != "" {
-			brokerEmails = append(brokerEmails, email)
-		}
-	}
-
-	log.Printf("Found %d emails from known brokers (out of %d total)", len(brokerEmails), len(allEmails))
-	return brokerEmails, nil
-}
-
-// FetchBrokerEmailsFromFolder fetches broker emails from a specific folder
-func (m *Monitor) FetchBrokerEmailsFromFolder(ctx context.Context, folder string, days int) ([]Email, error) {
-	// Select the specified folder
-	mbox, err := m.client.Select(folder, false)
-	if err != nil {
-		return nil, fmt.Errorf("failed to select folder %s: %w", folder, err)
-	}
-	log.Printf("Folder %s has %d messages", folder, mbox.Messages)
-
-	if mbox.Messages == 0 {
-		return nil, nil
-	}
-
-	// Search for emails from the last N days
-	since := time.Now().AddDate(0, 0, -days)
-	criteria := imap.NewSearchCriteria()
-	criteria.Since = since
-
-	uids, err := m.client.UidSearch(criteria)
-	if err != nil {
-		return nil, fmt.Errorf("failed to search emails in %s: %w", folder, err)
-	}
-
-	log.Printf("Found %d emails since %s in %s", len(uids), since.Format("2006-01-02"), folder)
-
-	if len(uids) == 0 {
-		return nil, nil
-	}
-
-	// Fetch emails in batches
-	var allEmails []Email
-	batchSize := 50
-	for i := 0; i < len(uids); i += batchSize {
-		end := i + batchSize
-		if end > len(uids) {
-			end = len(uids)
-		}
-
-		seqSet := new(imap.SeqSet)
-		for _, uid := range uids[i:end] {
-			seqSet.AddNum(uid)
-		}
-
-		// Fetch message details
-		messages := make(chan *imap.Message, batchSize)
-		done := make(chan error, 1)
-		section := &imap.BodySectionName{Peek: true}
-
-		go func() {
-			done <- m.client.UidFetch(seqSet, []imap.FetchItem{
-				imap.FetchEnvelope,
-				imap.FetchUid,
-				section.FetchItem(),
-			}, messages)
-		}()
-
-		for msg := range messages {
-			email, err := m.parseMessage(msg, section)
-			if err == nil && email != nil {
-				allEmails = append(allEmails, *email)
-			}
-		}
-
-		if err := <-done; err != nil {
-			log.Printf("Warning: error fetching batch: %v", err)
-		}
-	}
-
-	// Filter to broker emails only
-	var brokerEmails []Email
-	for _, email := range allEmails {
-		if email.BrokerID != "" {
-			brokerEmails = append(brokerEmails, email)
-		}
-	}
-
-	log.Printf("Found %d emails from known brokers in %s (out of %d total)", len(brokerEmails), folder, len(allEmails))
-	return brokerEmails, nil
-}
-
-// FetchBounceEmails fetches emails that look like bounce/undeliverable notifications
-func (m *Monitor) FetchBounceEmails(ctx context.Context, days int) ([]Email, error) {
-	allEmails, err := m.FetchRecentEmails(ctx, days)
-	if err != nil {
-		return nil, err
-	}
-
-	// Bounce sender patterns
-	bounceSenders := []string{
+// Envelope-level bounce hints. Narrower than the classifier's list (no
+// "noreply"), because these decide which bodies get downloaded at all.
+var (
+	bounceEnvelopeSenders = []string{
 		"mailer-daemon", "postmaster", "mail delivery",
 		"mail delivery system", "mail delivery subsystem",
 		"mailerdaemon", "mailsystem",
 	}
-
-	// Bounce subject patterns
-	bounceSubjects := []string{
+	bounceEnvelopeSubjects = []string{
 		"undeliverable", "delivery failed", "delivery status notification",
 		"returned mail", "mail delivery failed", "delivery failure",
 		"message not delivered", "could not be delivered",
 	}
+)
 
-	var bounceEmails []Email
-	for _, email := range allEmails {
-		fromLower := strings.ToLower(email.From)
-		fromNameLower := strings.ToLower(email.FromName)
-		subjectLower := strings.ToLower(email.Subject)
-
-		isBounce := false
-
-		// Check sender
-		for _, sender := range bounceSenders {
-			if strings.Contains(fromLower, sender) || strings.Contains(fromNameLower, sender) {
-				isBounce = true
-				break
-			}
-		}
-
-		// Check subject if not already identified as bounce
-		if !isBounce {
-			for _, pattern := range bounceSubjects {
-				if strings.Contains(subjectLower, pattern) {
-					isBounce = true
-					break
-				}
-			}
-		}
-
-		if isBounce {
-			bounceEmails = append(bounceEmails, email)
+// isBounceEnvelope decides from the envelope alone whether a message looks
+// like a bounce, so other mail bodies are never downloaded.
+func isBounceEnvelope(e *Email) bool {
+	from, name, subject := strings.ToLower(e.From), strings.ToLower(e.FromName), strings.ToLower(e.Subject)
+	for _, s := range bounceEnvelopeSenders {
+		if strings.Contains(from, s) || strings.Contains(name, s) {
+			return true
 		}
 	}
-
-	log.Printf("Found %d bounce emails (out of %d total)", len(bounceEmails), len(allEmails))
-	return bounceEmails, nil
+	for _, p := range bounceEnvelopeSubjects {
+		if strings.Contains(subject, p) {
+			return true
+		}
+	}
+	return false
 }
 
-// WatchForNewEmails monitors for new emails (blocking)
+// WatchForNewEmails monitors for new broker emails (blocking). Each message
+// is delivered once: only UIDs above the last one seen are fetched.
 func (m *Monitor) WatchForNewEmails(ctx context.Context, callback func(Email)) error {
 	if m.client == nil {
 		return fmt.Errorf("not connected to IMAP server")
 	}
-
-	// Select mailbox
-	_, err := m.client.Select(m.config.Folder, false)
+	mbox, err := m.client.Select(m.config.Folder, true)
 	if err != nil {
 		return fmt.Errorf("failed to select mailbox: %w", err)
 	}
+	next := mbox.UidNext
 
-	// Start IDLE
 	updates := make(chan client.Update)
 	m.client.Updates = updates
 
 	stop := make(chan struct{})
 	idleDone := make(chan error, 1)
-
-	go func() {
-		idleDone <- m.client.Idle(stop, nil)
-	}()
-
-	log.Printf("Watching for new emails (press Ctrl+C to stop)...")
+	go func() { idleDone <- m.client.Idle(stop, nil) }()
 
 	for {
 		select {
 		case <-ctx.Done():
 			close(stop)
+			if err := <-idleDone; err != nil {
+				log.Printf("IDLE ended during shutdown: %v", err)
+			}
 			return ctx.Err()
 		case update := <-updates:
-			switch u := update.(type) {
-			case *client.MailboxUpdate:
-				log.Printf("New mail detected: %d messages", u.Mailbox.Messages)
-				// Fetch the latest message
-				close(stop)
-				<-idleDone
-
-				emails, err := m.FetchRecentEmails(ctx, 1)
-				if err != nil {
-					log.Printf("Error fetching new email: %v", err)
-				} else if len(emails) > 0 {
-					// Process the newest email
-					for _, email := range emails {
-						if email.BrokerID != "" {
-							callback(email)
-						}
-					}
-				}
-
-				// Restart IDLE
-				stop = make(chan struct{})
-				go func() {
-					idleDone <- m.client.Idle(stop, nil)
-				}()
+			if _, ok := update.(*client.MailboxUpdate); !ok {
+				continue
 			}
+			close(stop)
+			if err := <-idleDone; err != nil {
+				return fmt.Errorf("IDLE error: %w", err)
+			}
+
+			emails, newNext, err := m.fetchSince(ctx, m.config.Folder, next)
+			if err != nil {
+				log.Printf("Error fetching new email: %v", err)
+			} else {
+				next = max(next, newNext)
+				for _, e := range emails {
+					callback(e)
+				}
+			}
+
+			stop = make(chan struct{})
+			go func() { idleDone <- m.client.Idle(stop, nil) }()
 		case err := <-idleDone:
 			if err != nil {
 				return fmt.Errorf("IDLE error: %w", err)
@@ -471,12 +420,9 @@ func (m *Monitor) EnsureFolderExists(name string) error {
 		return fmt.Errorf("not connected to IMAP server")
 	}
 
-	// List existing folders to check if it exists
 	mailboxes := make(chan *imap.MailboxInfo, 10)
 	done := make(chan error, 1)
-	go func() {
-		done <- m.client.List("", "*", mailboxes)
-	}()
+	go func() { done <- m.client.List("", "*", mailboxes) }()
 
 	exists := false
 	for mbox := range mailboxes {
@@ -484,97 +430,57 @@ func (m *Monitor) EnsureFolderExists(name string) error {
 			exists = true
 		}
 	}
-
 	if err := <-done; err != nil {
 		return fmt.Errorf("failed to list folders: %w", err)
 	}
-
 	if exists {
-		log.Printf("Folder '%s' already exists", name)
 		return nil
 	}
-
-	// Create the folder
 	if err := m.client.Create(name); err != nil {
 		return fmt.Errorf("failed to create folder '%s': %w", name, err)
 	}
-
-	log.Printf("Created folder '%s'", name)
 	return nil
 }
 
-// MoveToFolder moves a single email to the specified folder by UID
-func (m *Monitor) MoveToFolder(uid uint32, folder string) error {
+// ArchiveEmails moves the given emails that were fetched from the configured
+// folder into dest, and returns how many it moved. UIDs only identify a
+// message within its own folder, so emails from any other folder are skipped.
+func (m *Monitor) ArchiveEmails(emails []Email, dest string) (int, error) {
 	if m.client == nil {
-		return fmt.Errorf("not connected to IMAP server")
+		return 0, fmt.Errorf("not connected to IMAP server")
+	}
+	src := m.config.Folder
+
+	set := new(imap.SeqSet)
+	n := 0
+	for _, e := range emails {
+		if e.Folder == src && e.UID > 0 {
+			set.AddNum(e.UID)
+			n++
+		}
+	}
+	if n == 0 {
+		return 0, nil
 	}
 
-	seqSet := new(imap.SeqSet)
-	seqSet.AddNum(uid)
+	if _, err := m.client.Select(src, false); err != nil {
+		return 0, fmt.Errorf("failed to select mailbox: %w", err)
+	}
 
-	// Try MOVE first (RFC 6851) - this is most efficient
-	if err := m.client.UidMove(seqSet, folder); err != nil {
-		// Fallback to COPY + DELETE if MOVE not supported
-		if err := m.client.UidCopy(seqSet, folder); err != nil {
-			return fmt.Errorf("failed to copy email to '%s': %w", folder, err)
+	// MOVE (RFC 6851) is atomic and supported by Gmail and Outlook.
+	if err := m.client.UidMove(set, dest); err != nil {
+		// Fallback: COPY, flag \Deleted, EXPUNGE. Note: a plain EXPUNGE also
+		// removes any other messages already flagged \Deleted in src.
+		if err := m.client.UidCopy(set, dest); err != nil {
+			return 0, fmt.Errorf("failed to copy emails to '%s': %w", dest, err)
 		}
-
-		// Mark as deleted
 		item := imap.FormatFlagsOp(imap.AddFlags, true)
-		flags := []interface{}{imap.DeletedFlag}
-		if err := m.client.UidStore(seqSet, item, flags, nil); err != nil {
-			return fmt.Errorf("failed to mark email as deleted: %w", err)
+		if err := m.client.UidStore(set, item, []interface{}{imap.DeletedFlag}, nil); err != nil {
+			return 0, fmt.Errorf("failed to mark emails as deleted: %w", err)
 		}
-
-		// Expunge to remove the deleted message
 		if err := m.client.Expunge(nil); err != nil {
-			return fmt.Errorf("failed to expunge deleted email: %w", err)
+			return 0, fmt.Errorf("failed to expunge deleted emails: %w", err)
 		}
 	}
-
-	return nil
-}
-
-// ArchiveEmails moves multiple emails to the archive folder
-func (m *Monitor) ArchiveEmails(uids []uint32, folder string) error {
-	if m.client == nil {
-		return fmt.Errorf("not connected to IMAP server")
-	}
-
-	if len(uids) == 0 {
-		return nil
-	}
-
-	// Re-select INBOX to ensure we're in the right mailbox
-	if _, err := m.client.Select(m.config.Folder, false); err != nil {
-		return fmt.Errorf("failed to select mailbox: %w", err)
-	}
-
-	seqSet := new(imap.SeqSet)
-	seqSet.AddNum(uids...)
-
-	// Try MOVE first (RFC 6851) - this is most efficient
-	if err := m.client.UidMove(seqSet, folder); err != nil {
-		log.Printf("MOVE not supported, falling back to COPY+DELETE: %v", err)
-
-		// Fallback to COPY + DELETE if MOVE not supported
-		if err := m.client.UidCopy(seqSet, folder); err != nil {
-			return fmt.Errorf("failed to copy emails to '%s': %w", folder, err)
-		}
-
-		// Mark as deleted
-		item := imap.FormatFlagsOp(imap.AddFlags, true)
-		flags := []interface{}{imap.DeletedFlag}
-		if err := m.client.UidStore(seqSet, item, flags, nil); err != nil {
-			return fmt.Errorf("failed to mark emails as deleted: %w", err)
-		}
-
-		// Expunge to remove deleted messages
-		if err := m.client.Expunge(nil); err != nil {
-			return fmt.Errorf("failed to expunge deleted emails: %w", err)
-		}
-	}
-
-	log.Printf("Archived %d emails to '%s'", len(uids), folder)
-	return nil
+	return n, nil
 }

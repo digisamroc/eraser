@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -221,5 +222,34 @@ func TestSetupEmailKeepsPasswordWhenLeftBlank(t *testing.T) {
 	}
 	if got := s.sessions.Get(sid).Email.SMTP.Password; got != smtpSecret {
 		t.Fatalf("password = %q, want the previously saved one", got)
+	}
+}
+
+func TestScreenshotRouteServesOnlyScreenshots(t *testing.T) {
+	s, h := newTestServer(t, testConfig())
+	s.screenshotDir = t.TempDir()
+	name := "acme_filled_1700000000.png"
+	if err := os.WriteFile(filepath.Join(s.screenshotDir, name), []byte("\x89PNG\r\n\x1a\nfake"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A file next to the screenshot folder that must stay unreachable.
+	if err := os.WriteFile(filepath.Join(filepath.Dir(s.screenshotDir), "config.yaml"), []byte("password: x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if rec := do(h, http.MethodGet, "/screenshots/"+name, nil); rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("valid screenshot: %d %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	for _, bad := range []string{
+		"/screenshots/..%2fconfig.yaml",
+		"/screenshots/%2e%2e%2fconfig.yaml",
+		"/screenshots/config.yaml",
+		"/screenshots/acme_filled_1700000000.png.txt",
+		"/screenshots/missing_filled_1.png",
+	} {
+		rec := do(h, http.MethodGet, bad, nil)
+		if rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "password") {
+			t.Errorf("%s: status %d", bad, rec.Code)
+		}
 	}
 }

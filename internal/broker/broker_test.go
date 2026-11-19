@@ -121,6 +121,42 @@ func TestFilterExclusionsAndFormOnly(t *testing.T) {
 	}
 }
 
+func TestOwnsURL(t *testing.T) {
+	b := Broker{
+		ID: "acme", Email: "privacy@acme.com", Website: "https://www.acmedata.com",
+		OptOutURL: "https://privacyportal.onetrust.com/webform/abc-123",
+	}
+	tests := map[string]bool{
+		"https://acme.com/opt-out":                                        true,
+		"https://privacy.acme.com/dsr?x=1":                                true,
+		"https://www.acmedata.com/remove":                                 true,
+		"https://ACMEDATA.com:443/remove":                                 true,
+		"https://privacyportal.onetrust.com/webform/abc-123":              true,
+		"https://privacyportal.onetrust.com/webform/abc-123/step2":        true,
+		"https://privacyportal.onetrust.com/webform/abc-1234":             false, // not under the registered path
+		"https://privacyportal.onetrust.com/webform/other":                false, // someone else's form on the same platform
+		"https://privacyportal.onetrust.com/webform/abc-123/../other":     false, // browsers resolve ".."
+		"https://privacyportal.onetrust.com/webform/abc-123/%2e%2e/other": false,
+		"http://acme.com/opt-out":                                         false, // never send PII over plain HTTP
+		"https://acme.com.evil.example/opt-out":                           false,
+		"https://evilacme.com/opt-out":                                    false,
+		"https://evil.example/?next=https://acme.com":                     false,
+		"javascript:alert(1)":                                             false,
+		"":                                                                false,
+	}
+	for raw, want := range tests {
+		if got := b.OwnsURL(raw); got != want {
+			t.Errorf("OwnsURL(%q) = %v, want %v", raw, got, want)
+		}
+	}
+
+	// A personal mailbox domain never vouches for a URL.
+	gmail := Broker{ID: "x", Email: "someone@gmail.com"}
+	if gmail.OwnsURL("https://mail.gmail.com/form") {
+		t.Error("gmail.com URL accepted for a broker with a gmail address")
+	}
+}
+
 func TestEmailAccepted(t *testing.T) {
 	if !(Broker{}).EmailAccepted() {
 		t.Error("broker without tags should accept email")

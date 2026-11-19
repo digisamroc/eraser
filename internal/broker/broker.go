@@ -5,12 +5,14 @@ import (
 	"net/mail"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/eraser-privacy/eraser/internal/config"
+	"golang.org/x/net/publicsuffix"
 	"gopkg.in/yaml.v3"
 )
 
@@ -75,6 +77,49 @@ type Broker struct {
 // EmailAccepted reports whether the broker processes emailed removal requests.
 func (b Broker) EmailAccepted() bool {
 	return !slices.Contains(b.Tags, TagFormOnly)
+}
+
+// OwnsURL reports whether rawURL belongs to this broker, so it's safe to put
+// the user's details into it (fill) or follow it (confirm). It must be https,
+// and its host must share an organizational domain with the broker's email or
+// website domain, or it must be under the broker's registered opt-out URL
+// (which may live on a shared platform such as OneTrust).
+func (b Broker) OwnsURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+
+	if org, err := publicsuffix.EffectiveTLDPlusOne(host); err == nil {
+		for _, d := range []string{b.Email[strings.LastIndex(b.Email, "@")+1:], hostOf(b.Website)} {
+			d = strings.ToLower(d)
+			if d == "" || IsFreemailDomain(d) {
+				continue
+			}
+			if own, err := publicsuffix.EffectiveTLDPlusOne(d); err == nil && own == org {
+				return true
+			}
+		}
+	}
+
+	if opt, err := url.Parse(b.OptOutURL); err == nil && b.OptOutURL != "" &&
+		strings.EqualFold(opt.Hostname(), host) {
+		// Compare normalized paths: browsers resolve "..", including the
+		// percent-encoded form (u.Path is already decoded).
+		base := strings.TrimSuffix(path.Clean("/"+opt.Path), "/")
+		p := path.Clean("/" + u.Path)
+		return p == base || strings.HasPrefix(p, base+"/")
+	}
+	return false
+}
+
+func hostOf(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
 
 // IsFreemailDomain reports whether domain belongs to a personal mailbox provider.

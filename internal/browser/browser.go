@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/chromedp/chromedp"
@@ -18,6 +21,23 @@ import (
 // but must be submitted by hand.
 var ErrNoSubmitButton = errors.New("no submit button found; review and submit the form manually")
 
+// ErrLeftAllowedDomain means the page was, or ended up, somewhere the request
+// didn't allow (e.g. a redirect to another site), so nothing was filled.
+var ErrLeftAllowedDomain = errors.New("page is not on an allowed domain; nothing was filled")
+
+// FillRequest describes one form to fill.
+type FillRequest struct {
+	URL      string
+	BrokerID string
+	// Profile holds only the fields the user agreed to disclose to this
+	// broker; empty fields are never filled.
+	Profile config.Profile
+	// Allowed must approve the page's URL before navigating, after it loads
+	// (redirects included), and again before filling and submitting.
+	Allowed func(*url.URL) bool
+	Submit  bool
+}
+
 // Browser wraps chromedp for headless Chrome automation
 type Browser struct {
 	allocCtx    context.Context
@@ -25,7 +45,6 @@ type Browser struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	config      BrowserConfig
-	profile     *config.Profile
 }
 
 // BrowserConfig holds browser automation settings
@@ -38,6 +57,8 @@ type BrowserConfig struct {
 	WindowHeight  int
 	WaitForUser   bool         // If true, pause when CAPTCHA detected for user to solve
 	WaitCallback  func() error // Called when waiting for user (e.g., to prompt in terminal)
+
+	hostResolverRules string // tests only: map test host names to localhost
 }
 
 // DefaultConfig returns sensible default browser settings
@@ -68,7 +89,7 @@ type FormResult struct {
 
 // New starts a browser. The browser lives until Close; per-form timeouts in
 // NavigateAndFill only bound that form's actions.
-func New(cfg BrowserConfig, profile *config.Profile) (*Browser, error) {
+func New(cfg BrowserConfig) (*Browser, error) {
 	opts := []chromedp.ExecAllocatorOption{
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
@@ -79,6 +100,9 @@ func New(cfg BrowserConfig, profile *config.Profile) (*Browser, error) {
 
 	if cfg.Headless {
 		opts = append(opts, chromedp.Headless)
+	}
+	if cfg.hostResolverRules != "" {
+		opts = append(opts, chromedp.Flag("host-resolver-rules", cfg.hostResolverRules))
 	}
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
@@ -100,7 +124,6 @@ func New(cfg BrowserConfig, profile *config.Profile) (*Browser, error) {
 		ctx:         ctx,
 		cancel:      cancel,
 		config:      cfg,
-		profile:     profile,
 	}, nil
 }
 
@@ -115,17 +138,25 @@ func (b *Browser) Close() {
 }
 
 // NavigateAndFill navigates to a URL and attempts to fill any opt-out form
-func (b *Browser) NavigateAndFill(url string, brokerID string, autoSubmit bool) (*FormResult, error) {
+func (b *Browser) NavigateAndFill(req FillRequest) (*FormResult, error) {
+	brokerID, autoSubmit := req.BrokerID, req.Submit
 	result := &FormResult{
-		URL:      url,
+		URL:      req.URL,
 		BrokerID: brokerID,
+	}
+	if req.Allowed == nil {
+		return result, fmt.Errorf("fill request has no Allowed check")
+	}
+	if u, err := url.Parse(req.URL); err != nil || !req.Allowed(u) {
+		result.ErrorMessage = fmt.Sprintf("%v: %s", ErrLeftAllowedDomain, req.URL)
+		return result, fmt.Errorf("%w: %s", ErrLeftAllowedDomain, req.URL)
 	}
 
 	// Bound this form's actions; derived from the browser's context.
 	ctx, cancel := context.WithTimeout(b.ctx, b.config.Timeout)
 	defer cancel()
 
-	if _, err := chromedp.Run(ctx, chromedp.Navigate(url)); err != nil {
+	if _, err := chromedp.Run(ctx, chromedp.Navigate(req.URL)); err != nil {
 		result.ErrorMessage = fmt.Sprintf("navigation failed: %v", err)
 		return result, err
 	}
@@ -136,6 +167,11 @@ func (b *Browser) NavigateAndFill(url string, brokerID string, autoSubmit bool) 
 
 	// Small delay for dynamic content
 	time.Sleep(2 * time.Second)
+
+	// HTTP or script redirects may have taken the page elsewhere.
+	if err := b.checkLocation(ctx, req, result); err != nil {
+		return result, err
+	}
 
 	// PHASE 1: Check for blocking CAPTCHA (e.g., Cloudflare challenge, CAPTCHA gate before form)
 	// Some sites like TruePeopleSearch show CAPTCHA before the actual form is visible
@@ -161,6 +197,9 @@ func (b *Browser) NavigateAndFill(url string, brokerID string, autoSubmit bool) 
 
 			// User solved CAPTCHA, wait for page to update and then continue to fill form
 			time.Sleep(2 * time.Second)
+			if err := b.checkLocation(ctx, req, result); err != nil {
+				return result, err
+			}
 		} else {
 			result.ErrorMessage = fmt.Sprintf("Blocking CAPTCHA detected: %s - use --wait flag to solve manually", blockingCaptcha.Type)
 			return result, nil
@@ -168,7 +207,7 @@ func (b *Browser) NavigateAndFill(url string, brokerID string, autoSubmit bool) 
 	}
 
 	// PHASE 2: Fill form fields (either no blocking CAPTCHA, or user already solved it)
-	fillResult := b.fillFormFields(ctx)
+	fillResult := NewFormFiller(&req.Profile).Fill(ctx)
 	result.FieldsFilled = fillResult.FilledFields
 	result.FieldsMissing = fillResult.MissingFields
 
@@ -198,6 +237,9 @@ func (b *Browser) NavigateAndFill(url string, brokerID string, autoSubmit bool) 
 			}
 
 			if autoSubmit {
+				if err := b.checkLocation(ctx, req, result); err != nil {
+					return result, err
+				}
 				b.submitAndRecord(ctx, result, brokerID)
 			}
 			return result, nil
@@ -216,9 +258,26 @@ func (b *Browser) NavigateAndFill(url string, brokerID string, autoSubmit bool) 
 
 	result.Success = len(result.FieldsFilled) > 0
 	if autoSubmit && result.Success {
+		if err := b.checkLocation(ctx, req, result); err != nil {
+			return result, err
+		}
 		b.submitAndRecord(ctx, result, brokerID)
 	}
 	return result, nil
+}
+
+// checkLocation fails if the page's current URL isn't allowed.
+func (b *Browser) checkLocation(ctx context.Context, req FillRequest, result *FormResult) error {
+	loc, err := chromedp.Run(ctx, chromedp.Location())
+	if err != nil {
+		result.ErrorMessage = fmt.Sprintf("could not read page location: %v", err)
+		return err
+	}
+	if u, err := url.Parse(loc); err != nil || !req.Allowed(u) {
+		result.ErrorMessage = fmt.Sprintf("%v: %s", ErrLeftAllowedDomain, loc)
+		return fmt.Errorf("%w: %s", ErrLeftAllowedDomain, loc)
+	}
+	return nil
 }
 
 // submitAndRecord clicks the form's submit control and records the outcome.
@@ -234,12 +293,6 @@ func (b *Browser) submitAndRecord(ctx context.Context, result *FormResult, broke
 	if b.config.ScreenshotDir != "" {
 		_, _ = b.takeScreenshot(ctx, brokerID, "submitted")
 	}
-}
-
-// fillFormFields detects and fills form fields with profile data
-func (b *Browser) fillFormFields(ctx context.Context) *FillResult {
-	filler := NewFormFiller(b.profile)
-	return filler.Fill(ctx)
 }
 
 // markSubmitJS marks the submit control of a form that contains filled
@@ -296,17 +349,30 @@ func (b *Browser) takeScreenshot(ctx context.Context, brokerID, suffix string) (
 		return "", err
 	}
 
-	// Create screenshot directory if needed
-	if err := os.MkdirAll(b.config.ScreenshotDir, 0755); err != nil {
+	// Screenshots show filled-in personal details: owner-only access.
+	if err := os.MkdirAll(b.config.ScreenshotDir, 0o700); err != nil {
 		return "", err
 	}
 
-	filename := fmt.Sprintf("%s_%s_%d.png", brokerID, suffix, time.Now().Unix())
-	filepath := filepath.Join(b.config.ScreenshotDir, filename)
-
-	if err := os.WriteFile(filepath, buf, 0644); err != nil {
+	filename := ScreenshotName(brokerID, suffix, time.Now())
+	if err := os.WriteFile(filepath.Join(b.config.ScreenshotDir, filename), buf, 0o600); err != nil {
 		return "", err
 	}
 
 	return filename, nil
 }
+
+var unsafeNameChars = regexp.MustCompile(`[^a-z0-9-]+`)
+
+// ScreenshotName builds a file name that can't escape its folder, whatever
+// the broker ID contains (it can come from a command-line flag).
+func ScreenshotName(brokerID, suffix string, at time.Time) string {
+	id := strings.Trim(unsafeNameChars.ReplaceAllString(strings.ToLower(brokerID), "-"), "-")
+	if id == "" {
+		id = "form"
+	}
+	return fmt.Sprintf("%s_%s_%d.png", id, suffix, at.Unix())
+}
+
+// ScreenshotNamePattern matches names produced by ScreenshotName.
+var ScreenshotNamePattern = regexp.MustCompile(`^[a-z0-9-]+_[a-z_]+_[0-9]+\.png$`)

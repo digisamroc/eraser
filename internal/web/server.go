@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/eraser-privacy/eraser/internal/broker"
+	"github.com/eraser-privacy/eraser/internal/browser"
 	"github.com/eraser-privacy/eraser/internal/config"
 	"github.com/eraser-privacy/eraser/internal/email"
 	"github.com/eraser-privacy/eraser/internal/history"
@@ -103,32 +104,34 @@ func (rl *RateLimiter) cleanupLoop() {
 }
 
 type Server struct {
-	config       *config.Config
-	configPath   string
-	brokerDB     *broker.BrokerDatabase
-	historyStore *history.Store
-	tmplEngine   *emaTemplate.Engine
-	templates    map[string]*template.Template
-	httpServer   *http.Server
-	port         int
-	sessions     *SessionStore
-	rateLimiter  *RateLimiter
-	jobManager   *JobManager
-	newSender    func(config.EmailConfig) (email.Sender, error) // replaced in tests
+	config        *config.Config
+	configPath    string
+	brokerDB      *broker.BrokerDatabase
+	historyStore  *history.Store
+	tmplEngine    *emaTemplate.Engine
+	templates     map[string]*template.Template
+	httpServer    *http.Server
+	port          int
+	sessions      *SessionStore
+	rateLimiter   *RateLimiter
+	jobManager    *JobManager
+	newSender     func(config.EmailConfig) (email.Sender, error) // replaced in tests
+	screenshotDir string
 }
 
 func NewServer(port int, cfg *config.Config, configPath string, brokerDB *broker.BrokerDatabase, historyStore *history.Store, tmplEngine *emaTemplate.Engine) (*Server, error) {
 	s := &Server{
-		config:       cfg,
-		configPath:   configPath,
-		brokerDB:     brokerDB,
-		historyStore: historyStore,
-		tmplEngine:   tmplEngine,
-		port:         port,
-		sessions:     NewSessionStore(defaultSessionTTL),
-		rateLimiter:  NewRateLimiter(defaultRateLimit, defaultRateWindow),
-		jobManager:   NewJobManager(),
-		newSender:    email.NewSender,
+		config:        cfg,
+		configPath:    configPath,
+		brokerDB:      brokerDB,
+		historyStore:  historyStore,
+		tmplEngine:    tmplEngine,
+		port:          port,
+		sessions:      NewSessionStore(defaultSessionTTL),
+		rateLimiter:   NewRateLimiter(defaultRateLimit, defaultRateWindow),
+		jobManager:    NewJobManager(),
+		newSender:     email.NewSender,
+		screenshotDir: defaultScreenshotDir(),
 	}
 
 	tmpl, err := s.parseTemplates()
@@ -319,6 +322,7 @@ func (s *Server) setupRouter() *chi.Mux {
 	r.Get("/tasks/{taskID}/helper", s.handleTaskHelper)
 	r.Post("/tasks/{taskID}/complete", s.handleTaskComplete)
 	r.Post("/tasks/{taskID}/skip", s.handleTaskSkip)
+	r.Get("/screenshots/{name}", s.handleScreenshot)
 	r.Get("/forms", s.handleForms)
 	r.Post("/forms/{brokerID}/complete", s.handleFormComplete)
 	r.Post("/forms/{brokerID}/skip", s.handleFormSkip)
@@ -2359,4 +2363,31 @@ func removeLegacyJobFile() {
 	if err := os.Remove(path); err == nil {
 		log.Printf("Removed %s; interrupted sends are no longer auto-resumed. Use \"Send all\" to continue.", path)
 	}
+}
+
+func defaultScreenshotDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".eraser", "screenshots")
+}
+
+// handleScreenshot serves a form screenshot for the task pages. Only names
+// produced by browser.ScreenshotName are served, so nothing else in or
+// around the folder is reachable.
+func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if s.screenshotDir == "" || !browser.ScreenshotNamePattern.MatchString(name) {
+		http.NotFound(w, r)
+		return
+	}
+	// name matched ScreenshotNamePattern above: no separators or "..".
+	path := filepath.Join(s.screenshotDir, name)
+	if _, err := os.Stat(path); err != nil { //nolint:gosec // G703: name validated above
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	http.ServeFile(w, r, path) //nolint:gosec // G703: name validated above
 }

@@ -21,129 +21,69 @@ type ConfirmationResult struct {
 	RedirectPath []string
 }
 
-// ConfirmationHandler handles clicking confirmation links from emails
+// ConfirmationHandler handles clicking confirmation links from emails.
+// Which URLs it may follow is decided per call (see ClickConfirmationLink).
 type ConfirmationHandler struct {
-	client        *http.Client
-	brokerDomains map[string]bool
+	client *http.Client
 }
 
-// NewConfirmationHandler creates a new handler with known broker domains
-func NewConfirmationHandler(brokerDomains []string) *ConfirmationHandler {
-	domains := make(map[string]bool)
-	for _, d := range brokerDomains {
-		// Store both the domain and common variations
-		d = strings.ToLower(d)
-		domains[d] = true
-		// Also allow subdomains
-		if !strings.HasPrefix(d, "www.") {
-			domains["www."+d] = true
-		}
-		if !strings.HasPrefix(d, "mail.") {
-			domains["mail."+d] = true
-		}
-		if !strings.HasPrefix(d, "email.") {
-			domains["email."+d] = true
-		}
-	}
-
-	return &ConfirmationHandler{
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				// Allow up to 10 redirects
-				if len(via) >= 10 {
-					return fmt.Errorf("too many redirects")
-				}
-				return nil
-			},
-		},
-		brokerDomains: domains,
-	}
+// NewConfirmationHandler creates a new handler.
+func NewConfirmationHandler() *ConfirmationHandler {
+	return &ConfirmationHandler{client: &http.Client{Timeout: 30 * time.Second}}
 }
 
-// ValidateDomain checks if the URL belongs to a known broker domain
-func (h *ConfirmationHandler) ValidateDomain(confirmURL string) (bool, string, error) {
-	parsed, err := url.Parse(confirmURL)
-	if err != nil {
-		return false, "", fmt.Errorf("invalid URL: %w", err)
-	}
+// ErrDisallowedURL means a confirmation URL, or a redirect it led to, is not
+// one the caller allowed.
+var ErrDisallowedURL = errors.New("URL is not on an allowed broker domain")
 
-	host := strings.ToLower(parsed.Host)
-
-	// Remove port if present
-	if idx := strings.Index(host, ":"); idx != -1 {
-		host = host[:idx]
-	}
-
-	// Check exact match
-	if h.brokerDomains[host] {
-		return true, host, nil
-	}
-
-	// Check if it's a subdomain of a known domain
-	for domain := range h.brokerDomains {
-		if strings.HasSuffix(host, "."+domain) {
-			return true, domain, nil
-		}
-	}
-
-	return false, host, nil
-}
-
-// ClickConfirmationLink sends a GET request to the confirmation URL
-func (h *ConfirmationHandler) ClickConfirmationLink(confirmURL string, validateDomain bool) (*ConfirmationResult, error) {
+// ClickConfirmationLink sends a GET request to confirmURL. allowed must
+// approve the URL and every redirect hop; the request stops before any hop
+// it rejects, so a broker link can't bounce the click to another site.
+func (h *ConfirmationHandler) ClickConfirmationLink(confirmURL string, allowed func(*url.URL) bool) (*ConfirmationResult, error) {
 	result := &ConfirmationResult{
 		URL:          confirmURL,
 		RedirectPath: []string{confirmURL},
 	}
 
-	// Validate domain if requested
-	if validateDomain {
-		valid, domain, err := h.ValidateDomain(confirmURL)
-		if err != nil {
-			result.ErrorMessage = err.Error()
-			return result, err
-		}
-		if !valid {
-			result.ErrorMessage = fmt.Sprintf("domain %s is not a known broker domain", domain)
-			return result, errors.New(result.ErrorMessage)
-		}
-	}
-
-	// Create request with browser-like headers
 	req, err := http.NewRequest("GET", confirmURL, nil)
 	if err != nil {
 		result.ErrorMessage = fmt.Sprintf("failed to create request: %v", err)
 		return result, err
+	}
+	if !allowed(req.URL) {
+		result.ErrorMessage = fmt.Sprintf("%s: %s", ErrDisallowedURL, req.URL.Host)
+		return result, fmt.Errorf("%w: %s", ErrDisallowedURL, req.URL.Host)
 	}
 
 	// Set headers to look like a real browser
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
-	req.Header.Set("Connection", "keep-alive")
 
-	// Track redirects
-	var redirects []string
-	h.client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 10 {
-			return fmt.Errorf("too many redirects")
-		}
-		redirects = append(redirects, req.URL.String())
-		return nil
+	// A client per call: the redirect check closes over this call's state.
+	client := &http.Client{
+		Timeout: h.client.Timeout,
+		CheckRedirect: func(next *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			if !allowed(next.URL) {
+				return fmt.Errorf("%w: redirect to %s", ErrDisallowedURL, next.URL.Host)
+			}
+			result.RedirectPath = append(result.RedirectPath, next.URL.String())
+			return nil
+		},
 	}
 
-	// Make the request
-	resp, err := h.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		result.ErrorMessage = fmt.Sprintf("request failed: %v", err)
 		return result, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	result.StatusCode = resp.StatusCode
 	result.FinalURL = resp.Request.URL.String()
-	result.RedirectPath = append(result.RedirectPath, redirects...)
 
 	// Read response body (limited to 64KB)
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))

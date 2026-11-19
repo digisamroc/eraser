@@ -657,13 +657,14 @@ func (s *Server) handleSettingsInbox(w http.ResponseWriter, r *http.Request) {
 			return errMissing
 		}
 
-		// Update only the fields this form owns; keep folder and archive settings.
+		// Update only the fields this form owns; keep folder and archive
+		// settings, and the provider of a server set in config.yaml (it
+		// decides whose Authentication-Results are trusted).
 		inbox.Enabled = true
-		inbox.Provider = "gmail"
 		inbox.Email = email
 		inbox.Password = password
 		if inbox.Server == "" {
-			inbox.Server, inbox.Port = "imap.gmail.com", 993
+			inbox.Provider, inbox.Server, inbox.Port = "gmail", "imap.gmail.com", 993
 		}
 		if inbox.Folder == "" {
 			inbox.Folder = "INBOX"

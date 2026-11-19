@@ -730,6 +730,20 @@ rejects any other status.
 - verify: a web test that a posted status is ignored, and a store test that
   only `completed` and `skipped` are accepted; both failed before the fix.
 
+## Follow-up: inbox provider follows the server (2026-11-19)
+
+Status: done. Found in the last review. Saving the Settings inbox form
+always set `provider: gmail` but kept a server set in config.yaml, and
+`AuthServFor` trusted the provider name over the server. So editing the
+password of a non-Gmail inbox made Eraser accept `mx.google.com`
+Authentication-Results on that server (undoing "unknown provider fails
+closed"), and broke sender checks for Outlook. Now the form sets provider
+and server only when no server is set, and `AuthServFor` decides by
+server; a provider name counts only with no server.
+- verify: a web test that the form keeps an existing server's provider,
+  and `AuthServFor` cases for `gmail`/`outlook` on another server; both
+  failed before the fix.
+
 ---
 
 ## Decisions (2026-11-18)

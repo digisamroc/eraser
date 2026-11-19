@@ -73,7 +73,9 @@ type fakeSMTP struct {
 type fakeOpts struct {
 	implicitTLS   bool // TLS from the first byte (port-465 style)
 	offerSTARTTLS bool
-	silent        bool // accept the connection but never speak
+	silent        bool   // accept the connection but never speak
+	dropOnQuit    bool   // close the connection on QUIT without replying
+	rejectRcpt    string // reply to RCPT with this line instead of 250
 }
 
 func startFakeSMTP(t *testing.T, cert tls.Certificate, opts fakeOpts) *fakeSMTP {
@@ -151,6 +153,10 @@ func (f *fakeSMTP) serve(conn net.Conn, tlsCfg *tls.Config, opts fakeOpts) {
 			f.mu.Unlock()
 			_ = tp.PrintfLine("250 ok")
 		case "RCPT":
+			if opts.rejectRcpt != "" {
+				_ = tp.PrintfLine("%s", opts.rejectRcpt)
+				continue
+			}
 			f.mu.Lock()
 			f.to = line
 			f.mu.Unlock()
@@ -166,7 +172,9 @@ func (f *fakeSMTP) serve(conn net.Conn, tlsCfg *tls.Config, opts fakeOpts) {
 			f.mu.Unlock()
 			_ = tp.PrintfLine("250 queued")
 		case "QUIT":
-			_ = tp.PrintfLine("221 bye")
+			if !opts.dropOnQuit {
+				_ = tp.PrintfLine("221 bye")
+			}
 			return
 		default:
 			_ = tp.PrintfLine("250 ok")
@@ -332,5 +340,54 @@ func checkMessage(t *testing.T, data []byte, messageID string) {
 	got := strings.TrimRight(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
 	if got != strings.TrimRight(testMsg.Body, "\n") {
 		t.Errorf("body round-trip:\n got %q\nwant %q", got, testMsg.Body)
+	}
+}
+
+// Once the server accepts the message (250 after DATA), it will be delivered.
+// A failed QUIT must not turn that into a failure, or the next run resends.
+func TestSendSucceedsWhenQuitFails(t *testing.T) {
+	cert, pool := testCert(t)
+	f := startFakeSMTP(t, cert, fakeOpts{offerSTARTTLS: true, dropOnQuit: true})
+
+	res := newTestSender(f, pool, "").Send(context.Background(), testMsg)
+	if !res.Success || res.MessageID == "" {
+		t.Fatalf("accepted message reported as failed: %+v", res)
+	}
+	if _, _, data := f.snapshot(); len(data) == 0 {
+		t.Fatal("no message delivered")
+	}
+}
+
+// A rejected recipient is the broker's problem, not the user's settings.
+func TestSendReportsRecipientRejection(t *testing.T) {
+	cert, pool := testCert(t)
+	f := startFakeSMTP(t, cert, fakeOpts{offerSTARTTLS: true, rejectRcpt: "550 5.1.1 No such user"})
+
+	res := newTestSender(f, pool, "").Send(context.Background(), testMsg)
+	if res.Success {
+		t.Fatal("send should fail")
+	}
+	msg := res.Error.Error()
+	if !strings.Contains(msg, "recipient rejected") || !strings.Contains(msg, "550") || strings.Contains(msg, "configuration") {
+		t.Errorf("error = %q, want the recipient rejection and its reply code", msg)
+	}
+}
+
+// Personal data must never go over plaintext SMTP to another machine.
+func TestSendRefusesPlaintextToRemoteHost(t *testing.T) {
+	s := NewSMTPSender(config.SMTPConfig{Host: "smtp.example.com", Port: 25}, "jose@example.com")
+	res := s.Send(context.Background(), testMsg)
+	if res.Success || !strings.Contains(res.Error.Error(), "TLS") {
+		t.Fatalf("got %+v, want a TLS-required error", res)
+	}
+}
+
+// A local relay (e.g. on 127.0.0.1) may be plaintext.
+func TestSendAllowsPlaintextToLoopback(t *testing.T) {
+	cert, _ := testCert(t)
+	f := startFakeSMTP(t, cert, fakeOpts{})
+	s := NewSMTPSender(config.SMTPConfig{Host: f.addr, Port: f.port}, "jose@example.com")
+	if res := s.Send(context.Background(), testMsg); !res.Success {
+		t.Fatalf("send to loopback relay failed: %v", res.Error)
 	}
 }

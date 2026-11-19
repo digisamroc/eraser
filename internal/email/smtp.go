@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,9 @@ func (s *SMTPSender) Send(ctx context.Context, msg Message) Result {
 	if mode == config.TLSNone && s.config.Username != "" {
 		return Result{Success: false, Error: fmt.Errorf("SMTP auth requires TLS")}
 	}
+	if mode == config.TLSNone && !s.config.IsLoopback() {
+		return Result{Success: false, Error: fmt.Errorf("SMTP to %s requires TLS (set use_tls: true)", s.config.Host)}
+	}
 
 	messageID, err := newMessageID(msg.From)
 	if err != nil {
@@ -60,9 +64,32 @@ func (s *SMTPSender) Send(ctx context.Context, msg Message) Result {
 	return Result{Success: true, MessageID: messageID}
 }
 
+// rejection is the server refusing the sender, a recipient, or the message.
+// The reply says why (e.g. "550 5.1.1 No such user"), which is about the
+// broker's address or the message, not the user's settings.
+type rejection struct {
+	stage string // "sender rejected", "recipient rejected", "message rejected"
+	err   error
+}
+
+func (r *rejection) Error() string { return r.stage + ": " + r.err.Error() }
+func (r *rejection) Unwrap() error { return r.err }
+
+// maxReplyLen bounds how much of a server reply is kept in history.
+const maxReplyLen = 200
+
 func sanitizeSMTPError(err error) error {
 	if errors.Is(err, errNoSTARTTLS) {
 		return errNoSTARTTLS
+	}
+	var rej *rejection
+	var reply *textproto.Error
+	if errors.As(err, &rej) && errors.As(err, &reply) {
+		msg := reply.Msg
+		if len(msg) > maxReplyLen {
+			msg = msg[:maxReplyLen]
+		}
+		return fmt.Errorf("%s by the server: %d %s", rej.stage, reply.Code, strings.ToValidUTF8(msg, ""))
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return fmt.Errorf("SMTP timed out or was cancelled")
@@ -129,22 +156,26 @@ func (s *SMTPSender) deliver(ctx context.Context, mode, from, to string, data []
 		}
 	}
 	if err := client.Mail(from); err != nil {
-		return fmt.Errorf("sender rejected: %w", err)
+		return &rejection{"sender rejected", err}
 	}
 	if err := client.Rcpt(to); err != nil {
-		return fmt.Errorf("recipient rejected: %w", err)
+		return &rejection{"recipient rejected", err}
 	}
 	w, err := client.Data()
 	if err != nil {
-		return fmt.Errorf("data command failed: %w", err)
+		return &rejection{"message rejected", err}
 	}
 	if _, err := w.Write(data); err != nil {
 		return fmt.Errorf("message write failed: %w", err)
 	}
 	if err := w.Close(); err != nil {
-		return fmt.Errorf("message finalization failed: %w", err)
+		return &rejection{"message rejected", err}
 	}
-	return client.Quit()
+	// The server accepted the message (250 after DATA), so it will be
+	// delivered. A failed QUIT must not report a failure: the next run would
+	// send it again.
+	_ = client.Quit()
+	return nil
 }
 
 // buildMessage renders RFC 5322 headers and a quoted-printable UTF-8 body.

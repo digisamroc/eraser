@@ -105,17 +105,21 @@ func (rl *RateLimiter) cleanupLoop() {
 }
 
 type Server struct {
-	config        *config.Config
-	configPath    string
-	brokerDB      *broker.BrokerDatabase
-	historyStore  *history.Store
-	tmplEngine    *emaTemplate.Engine
-	templates     map[string]*template.Template
-	httpServer    *http.Server
-	port          int
-	sessions      *SessionStore
-	rateLimiter   *RateLimiter
-	jobManager    *JobManager
+	config       *config.Config
+	configPath   string
+	brokerDB     *broker.BrokerDatabase
+	historyStore *history.Store
+	tmplEngine   *emaTemplate.Engine
+	templates    map[string]*template.Template
+	httpServer   *http.Server
+	port         int
+	sessions     *SessionStore
+	rateLimiter  *RateLimiter
+	jobManager   *JobManager
+	// sendMu makes "check no job is running, plan from history, start" one
+	// step for "Send all" and "Send", so two requests can't plan from the
+	// same history and email a broker twice.
+	sendMu        sync.Mutex
 	newSender     func(config.EmailConfig) (email.Sender, error) // replaced in tests
 	screenshotDir string
 }
@@ -704,6 +708,15 @@ func (s *Server) handleAPISendOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Held through the send, so the plan below can't go stale.
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+	if s.jobManager.GetActive() != nil {
+		w.WriteHeader(http.StatusConflict)
+		w.Write([]byte(`<span class="text-yellow-600">A send job is running; wait for it to finish.</span>`))
+		return
+	}
+
 	d, disclose, err := s.deliverer()
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -808,7 +821,11 @@ func (s *Server) handleAPISendAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if a job is already running
+	// Checking for a running job, planning and starting the job is one step
+	// (see sendMu). A job records each send before it finishes, so a plan
+	// made after it ends sees those sends.
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
 	if activeJob := s.jobManager.GetActive(); activeJob != nil {
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{

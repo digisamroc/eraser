@@ -429,6 +429,17 @@ database keeps them 0600 too.
 
 ### 9C: Sending
 
+Status: done. Items 1–4. Notes:
+- Item 1: an atomic create-if-idle wasn't enough. A request that planned
+  before an earlier job finished could still start afterwards with that
+  stale plan. `Server.sendMu` now covers "no job running, plan, start" for
+  "Send all" and the whole of a single "Send" (so double-clicking "Send" can't
+  send twice either). Reproduced first: 8 concurrent requests started 3 jobs.
+- Item 4: sender, recipient and DATA rejections keep the reply code and up
+  to 200 characters of the server's text; other errors stay generic.
+- verify: each fix reverted on its own makes a test fail (7/7); the
+  concurrency tests pass 10/10 under `-race`.
+
 1. **Two "Send all" requests can start two jobs.** `GetActive` and `Create`
    are separate steps, and the rate limit allows 30 per minute. Both jobs
    plan from the same history: every broker gets two emails and the daily

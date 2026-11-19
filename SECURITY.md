@@ -25,7 +25,9 @@ Broker contacts come from the California CPPA registry, where brokers register
 their own addresses (`cmd/registry-import`). Personal-mailbox domains (Gmail,
 Outlook, …) are rejected, and manual additions must cite a source. Emails
 contain only your name and email unless you opt in to more, globally or per
-broker (`options.disclose`, per-broker `disclose`).
+broker (`options.disclose`, per-broker `disclose`). Mail goes out over TLS
+(implicit or STARTTLS, never falling back); plaintext SMTP is refused except
+to a relay on this machine.
 
 **Spoofed "broker" email.**
 A reply only counts as a broker's if your mail provider verified it: the

@@ -28,7 +28,7 @@ email:
     port: 465            # 465 = implicit TLS; 587 = STARTTLS
     username: john.doe@gmail.com
     password: your-app-password  # Use app password, not your regular password!
-    use_tls: true        # required when username is set; never falls back to plaintext
+    use_tls: true        # required except for a relay on this machine; never falls back to plaintext
     # tls_mode: starttls # only needed to override the port-based default
 
 options:

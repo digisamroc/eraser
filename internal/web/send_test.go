@@ -20,12 +20,16 @@ import (
 )
 
 type recordingSender struct {
-	mu   sync.Mutex
-	sent []email.Message
+	mu    sync.Mutex
+	sent  []email.Message
+	block chan struct{} // if set, each Send waits for it to close
 }
 
 func (r *recordingSender) Name() string { return "recording" }
 func (r *recordingSender) Send(_ context.Context, m email.Message) email.Result {
+	if r.block != nil {
+		<-r.block
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sent = append(r.sent, m)
@@ -222,4 +226,81 @@ func TestJobStatusPollingIsRaceFree(t *testing.T) {
 	time.Sleep(20 * time.Millisecond) // keep polling across the final update
 	close(stop)
 	<-done
+}
+
+// A double click (or two tabs) must not start two jobs from the same plan:
+// every broker would get two emails and the daily cap would be exceeded.
+func TestConcurrentSendAllStartsOneJob(t *testing.T) {
+	var ids []string
+	for i := range 10 {
+		ids = append(ids, fmt.Sprintf("b%02d", i))
+	}
+	for attempt := range 5 {
+		f := newSendFixture(t, config.Options{}, brokersN(ids...))
+		const n = 8
+		start := make(chan struct{})
+		codes := make(chan int, n)
+		jobIDs := make(chan string, n)
+		var wg sync.WaitGroup
+		for range n {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				body, code := f.sendAll(t)
+				codes <- code
+				if id, ok := body["job_id"].(string); ok && code == http.StatusOK {
+					jobIDs <- id
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(codes)
+		close(jobIDs)
+
+		started := 0
+		for code := range codes {
+			if code == http.StatusOK {
+				started++
+			}
+		}
+		for id := range jobIDs {
+			f.waitForJob(t, id)
+		}
+		if started != 1 {
+			t.Fatalf("attempt %d: %d concurrent send-all requests started %d jobs, want 1", attempt, n, started)
+		}
+		if got := f.sender.recipients(); len(got) != len(ids) {
+			t.Fatalf("attempt %d: sent %d emails to %d brokers: %v", attempt, len(got), len(ids), got)
+		}
+	}
+}
+
+// While a job is sending, a single "Send" could email a broker the job is
+// about to (or just did) email.
+func TestSendOneRefusedWhileJobRuns(t *testing.T) {
+	f := newSendFixture(t, config.Options{}, brokersN("a", "b"))
+	f.sender.block = make(chan struct{})
+	body, code := f.sendAll(t)
+	if code != http.StatusOK {
+		t.Fatalf("status %d: %v", code, body)
+	}
+
+	// Without the check, the request sends too, and blocks on the sender.
+	codes := make(chan int, 1)
+	go func() { codes <- do(f.h, http.MethodPost, "/api/send/b", sameOrigin).Code }()
+	var code1 int
+	select {
+	case code1 = <-codes:
+	case <-time.After(2 * time.Second):
+	}
+	close(f.sender.block)
+	f.waitForJob(t, body["job_id"].(string))
+	if code1 != http.StatusConflict {
+		t.Fatalf("send-one during a job: status %d, want 409 (0 means it started sending)", code1)
+	}
+	if got := f.sender.recipients(); len(got) != 2 {
+		t.Fatalf("recipients = %v, want each broker once", got)
+	}
 }

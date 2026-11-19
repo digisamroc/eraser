@@ -24,7 +24,7 @@ func TestSendLimitDefaults(t *testing.T) {
 func TestValidateRejectsNegativeLimits(t *testing.T) {
 	base := Config{
 		Profile: Profile{FirstName: "J", LastName: "D", Email: "j@example.com"},
-		Email:   EmailConfig{Provider: "smtp", From: "j@example.com", SMTP: SMTPConfig{Host: "h", Port: 465}},
+		Email:   EmailConfig{Provider: "smtp", From: "j@example.com", SMTP: SMTPConfig{Host: "h", Port: 465, UseTLS: true}},
 	}
 	for name, o := range map[string]Options{
 		"daily_limit":       {DailyLimit: -1},
@@ -146,5 +146,23 @@ func TestSaveLeavesOtherDirsAlone(t *testing.T) {
 	}
 	if info, _ := os.Stat(dir); info.Mode().Perm() != 0o755 {
 		t.Errorf("folder permissions changed to %04o", info.Mode().Perm())
+	}
+}
+
+func TestValidateRejectsPlaintextSMTPToRemoteHost(t *testing.T) {
+	for host, wantErr := range map[string]bool{
+		"smtp.example.com": true,
+		"10.0.0.5":         true,
+		"localhost":        false,
+		"127.0.0.1":        false,
+		"::1":              false,
+	} {
+		cfg := Config{
+			Profile: Profile{FirstName: "J", LastName: "D", Email: "j@example.com"},
+			Email:   EmailConfig{Provider: "smtp", From: "j@example.com", SMTP: SMTPConfig{Host: host, Port: 25}},
+		}
+		if err := cfg.Validate(); (err != nil) != wantErr {
+			t.Errorf("%s: Validate() = %v, want error %v", host, err, wantErr)
+		}
 	}
 }

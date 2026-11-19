@@ -2,9 +2,11 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -116,6 +118,17 @@ func (c SMTPConfig) EffectiveTLSMode() string {
 	default:
 		return TLSStartTLS
 	}
+}
+
+// IsLoopback reports whether Host is this machine (a local relay), the only
+// place a plaintext SMTP connection may go.
+func (c SMTPConfig) IsLoopback() bool {
+	host := strings.TrimSuffix(strings.ToLower(c.Host), ".")
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 type Options struct {
@@ -291,6 +304,9 @@ func (c *Config) Validate() error {
 	case "", TLSImplicit, TLSStartTLS:
 	default:
 		return fmt.Errorf("email.smtp: unknown tls_mode %q (want %q or %q)", c.Email.SMTP.TLSMode, TLSImplicit, TLSStartTLS)
+	}
+	if c.Email.SMTP.EffectiveTLSMode() == TLSNone && !c.Email.SMTP.IsLoopback() {
+		return fmt.Errorf("email.smtp: use_tls must be true for %s; plaintext is only allowed to a relay on this machine", c.Email.SMTP.Host)
 	}
 	if _, err := c.Options.Disclosure(); err != nil {
 		return err

@@ -95,7 +95,7 @@ func TestDisclosureFieldsAndWithheld(t *testing.T) {
 func TestValidateRejectsUnknownDisclose(t *testing.T) {
 	cfg := &Config{
 		Profile: Profile{FirstName: "J", LastName: "D", Email: "j@example.com"},
-		Email:   EmailConfig{Provider: "smtp", From: "j@example.com", SMTP: SMTPConfig{Host: "h", Port: 465}},
+		Email:   EmailConfig{Provider: "smtp", From: "j@example.com", SMTP: SMTPConfig{Host: "h", Port: 465, UseTLS: true}},
 		Options: Options{Disclose: []string{"passport"}},
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "passport") {
@@ -106,7 +106,7 @@ func TestValidateRejectsUnknownDisclose(t *testing.T) {
 func TestValidateRejectsUnknownTLSMode(t *testing.T) {
 	cfg := &Config{
 		Profile: Profile{FirstName: "J", LastName: "D", Email: "j@example.com"},
-		Email:   EmailConfig{Provider: "smtp", From: "j@example.com", SMTP: SMTPConfig{Host: "h", Port: 587, TLSMode: "ssl"}},
+		Email:   EmailConfig{Provider: "smtp", From: "j@example.com", SMTP: SMTPConfig{Host: "h", Port: 587, UseTLS: true, TLSMode: "ssl"}},
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "tls_mode") {
 		t.Fatalf("Validate() = %v, want tls_mode error", err)

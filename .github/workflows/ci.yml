@@ -30,6 +30,12 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # Ubuntu 23.10+ restricts the unprivileged user namespaces Chrome's
+      # sandbox needs. Allow them so the browser tests run Chrome with its
+      # sandbox on (never --no-sandbox: fill loads untrusted broker sites).
+      - name: Allow Chrome sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: go test (race)
         run: go test -race -count=1 ./...
 

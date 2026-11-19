@@ -114,7 +114,33 @@ type Options struct {
 	RateLimitMs     int      `yaml:"rate_limit_ms"`
 	Regions         []string `yaml:"regions"`
 	ExcludedBrokers []string `yaml:"excluded_brokers,omitempty"`
-	Disclose        []string `yaml:"disclose,omitempty"` // optional profile fields to include in emails
+	Disclose        []string `yaml:"disclose,omitempty"`          // optional profile fields to include in emails
+	DailyLimit      int      `yaml:"daily_limit,omitempty"`       // max successful sends per rolling 24h; 0 = default
+	ResendAfterDays int      `yaml:"resend_after_days,omitempty"` // skip brokers sent to more recently; 0 = default
+}
+
+const (
+	// DefaultDailyLimit stays well under Gmail's ~500 messages/day.
+	DefaultDailyLimit = 250
+	// DefaultResendAfterDays leaves brokers time to respond (CCPA allows 45
+	// days) while still allowing a monthly re-run.
+	DefaultResendAfterDays = 30
+)
+
+// EffectiveDailyLimit returns daily_limit or its default.
+func (o Options) EffectiveDailyLimit() int {
+	if o.DailyLimit > 0 {
+		return o.DailyLimit
+	}
+	return DefaultDailyLimit
+}
+
+// EffectiveResendAfterDays returns resend_after_days or its default.
+func (o Options) EffectiveResendAfterDays() int {
+	if o.ResendAfterDays > 0 {
+		return o.ResendAfterDays
+	}
+	return DefaultResendAfterDays
 }
 
 func DefaultConfigPath() string {
@@ -181,7 +207,12 @@ func Save(path string, cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to serialize config: %w", err)
 	}
-	return os.WriteFile(path, data, 0600)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return err
+	}
+	// WriteFile only applies the mode when creating the file; tighten an
+	// existing file too, since it holds personal data and credentials.
+	return os.Chmod(path, 0600)
 }
 
 func (c *Config) Validate() error {
@@ -214,6 +245,12 @@ func (c *Config) Validate() error {
 	}
 	if _, err := c.Options.Disclosure(); err != nil {
 		return err
+	}
+	if c.Options.DailyLimit < 0 {
+		return fmt.Errorf("options: daily_limit must not be negative")
+	}
+	if c.Options.ResendAfterDays < 0 {
+		return fmt.Errorf("options: resend_after_days must not be negative")
 	}
 
 	return nil

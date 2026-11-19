@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -104,36 +103,32 @@ func (rl *RateLimiter) cleanupLoop() {
 }
 
 type Server struct {
-	config         *config.Config
-	configPath     string
-	brokerDB       *broker.BrokerDatabase
-	historyStore   *history.Store
-	tmplEngine     *emaTemplate.Engine
-	templates      map[string]*template.Template
-	httpServer     *http.Server
-	port           int
-	sessions       *SessionStore
-	rateLimiter    *RateLimiter
-	jobManager     *JobManager
-	jobPersistence *JobPersistence
+	config       *config.Config
+	configPath   string
+	brokerDB     *broker.BrokerDatabase
+	historyStore *history.Store
+	tmplEngine   *emaTemplate.Engine
+	templates    map[string]*template.Template
+	httpServer   *http.Server
+	port         int
+	sessions     *SessionStore
+	rateLimiter  *RateLimiter
+	jobManager   *JobManager
+	newSender    func(config.EmailConfig) (email.Sender, error) // replaced in tests
 }
 
 func NewServer(port int, cfg *config.Config, configPath string, brokerDB *broker.BrokerDatabase, historyStore *history.Store, tmplEngine *emaTemplate.Engine) (*Server, error) {
-	// Get data directory for job persistence
-	home, _ := os.UserHomeDir()
-	dataDir := filepath.Join(home, ".eraser")
-
 	s := &Server{
-		config:         cfg,
-		configPath:     configPath,
-		brokerDB:       brokerDB,
-		historyStore:   historyStore,
-		tmplEngine:     tmplEngine,
-		port:           port,
-		sessions:       NewSessionStore(defaultSessionTTL),
-		rateLimiter:    NewRateLimiter(defaultRateLimit, defaultRateWindow),
-		jobManager:     NewJobManager(),
-		jobPersistence: NewJobPersistence(dataDir),
+		config:       cfg,
+		configPath:   configPath,
+		brokerDB:     brokerDB,
+		historyStore: historyStore,
+		tmplEngine:   tmplEngine,
+		port:         port,
+		sessions:     NewSessionStore(defaultSessionTTL),
+		rateLimiter:  NewRateLimiter(defaultRateLimit, defaultRateWindow),
+		jobManager:   NewJobManager(),
+		newSender:    email.NewSender,
 	}
 
 	tmpl, err := s.parseTemplates()
@@ -269,8 +264,7 @@ func (s *Server) Start() error {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Check for pending job and offer to resume
-	s.checkPendingJob()
+	removeLegacyJobFile()
 
 	// Open browser after a short delay
 	go func() {
@@ -292,75 +286,6 @@ func (s *Server) Start() error {
 // Shutdown gracefully shuts down the server
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
-}
-
-// checkPendingJob checks for an incomplete job from a previous session and resumes it
-func (s *Server) checkPendingJob() {
-	state, err := s.jobPersistence.Load()
-	if err != nil {
-		log.Printf("Warning: failed to load pending job: %v", err)
-		return
-	}
-
-	if state == nil || len(state.RemainingBrokers) == 0 {
-		return // No pending job
-	}
-
-	fmt.Printf("\nFound incomplete send job: %d of %d brokers remaining\n", len(state.RemainingBrokers), state.Total)
-	fmt.Printf("Already sent: %d, failed: %d\n", state.Sent, state.Failed)
-
-	// Auto-resume the job
-	go s.resumePendingJob(state)
-}
-
-// resumePendingJob resumes processing of an incomplete job
-func (s *Server) resumePendingJob(state *PersistentJobState) {
-	// Wait a moment for the server to fully start
-	time.Sleep(2 * time.Second)
-
-	if s.config == nil || s.config.Email.Provider == "" {
-		log.Printf("Cannot resume job: email not configured")
-		s.jobPersistence.Clear()
-		return
-	}
-
-	// Create email sender
-	sender, err := email.NewSender(s.config.Email)
-	if err != nil {
-		log.Printf("Cannot resume job: failed to create email sender: %v", err)
-		s.jobPersistence.Clear()
-		return
-	}
-
-	// Build broker list from remaining IDs
-	brokerMap := make(map[string]broker.Broker)
-	for _, b := range s.brokerDB.Brokers {
-		brokerMap[b.ID] = b
-	}
-
-	var toSend []BrokerWithStatus
-	for _, id := range state.RemainingBrokers {
-		if b, ok := brokerMap[id]; ok && b.EmailAccepted() {
-			toSend = append(toSend, BrokerWithStatus{Broker: b, Status: "never"})
-		}
-	}
-
-	if len(toSend) == 0 {
-		log.Printf("No valid brokers remaining in pending job")
-		s.jobPersistence.Clear()
-		return
-	}
-
-	// Create a new job to continue processing
-	job := s.jobManager.Create(state.Total)
-	job.Sent = state.Sent
-	job.Failed = state.Failed
-	job.Progress = ((state.Sent + state.Failed) * 100) / state.Total
-
-	fmt.Printf("Resuming send job: %d brokers remaining...\n", len(toSend))
-
-	// Process remaining brokers
-	s.processSendJob(job, toSend, sender)
 }
 
 // setupRouter configures all routes
@@ -387,6 +312,7 @@ func (s *Server) setupRouter() *chi.Mux {
 	r.Get("/history", s.handleHistory)
 	r.Get("/settings", s.handleSettings)
 	r.Post("/settings/inbox", s.handleSettingsInbox)
+	r.Post("/settings/disclose", s.handleSettingsDisclose)
 	r.Get("/pipeline", s.handlePipeline)
 	r.Get("/tasks", s.handleTasks)
 	r.Get("/tasks/{taskID}", s.handleTaskDetail)
@@ -590,11 +516,54 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	s.renderSettings(w, nil)
+}
+
+// renderSettings renders the settings page with the current config plus
+// any extra template data (e.g. a status message).
+func (s *Server) renderSettings(w http.ResponseWriter, extra map[string]interface{}) {
+	var disclose config.Disclosure
+	if s.config != nil {
+		disclose, _ = s.config.Options.Disclosure() // invalid values render as unchecked
+	}
 	data := map[string]interface{}{
-		"Title":  "Settings",
-		"Config": s.config,
+		"Title":      "Settings",
+		"Config":     s.config,
+		"Disclosure": disclose,
+	}
+	for k, v := range extra {
+		data[k] = v
 	}
 	s.render(w, "settings.html", data)
+}
+
+// handleSettingsDisclose saves which optional profile fields go into emails.
+func (s *Server) handleSettingsDisclose(w http.ResponseWriter, r *http.Request) {
+	msg := func(text string, ok bool) {
+		s.renderSettings(w, map[string]interface{}{"DiscloseMessage": text, "DiscloseSuccess": ok})
+	}
+	if err := r.ParseForm(); err != nil {
+		msg("Failed to parse form", false)
+		return
+	}
+	if s.config == nil {
+		msg("Complete setup first", false)
+		return
+	}
+	disclose, err := config.ParseDisclosure(r.Form["disclose"])
+	if err != nil {
+		msg(err.Error(), false)
+		return
+	}
+
+	updated := *s.config
+	updated.Options.Disclose = disclose.Values()
+	if err := config.Save(s.configPath, &updated); err != nil {
+		msg("Failed to save configuration: "+err.Error(), false)
+		return
+	}
+	s.config = &updated
+	msg("Saved. Emails will include: "+strings.Join(disclose.Fields(), ", ")+".", true)
 }
 
 func (s *Server) handleSettingsInbox(w http.ResponseWriter, r *http.Request) {
@@ -644,13 +613,7 @@ func (s *Server) handleSettingsInbox(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderSettingsWithMessage(w http.ResponseWriter, r *http.Request, message string, success bool) {
-	data := map[string]interface{}{
-		"Title":        "Settings",
-		"Config":       s.config,
-		"InboxMessage": message,
-		"InboxSuccess": success,
-	}
-	s.render(w, "settings.html", data)
+	s.renderSettings(w, map[string]interface{}{"InboxMessage": message, "InboxSuccess": success})
 }
 
 // API handlers
@@ -734,87 +697,88 @@ func (s *Server) handleAPISendOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create email sender
-	sender, err := email.NewSender(s.config.Email)
+	d, disclose, err := s.deliverer()
 	if err != nil {
-		w.Write([]byte(fmt.Sprintf(`<span class="text-red-600">Error: %s</span>`, template.HTMLEscapeString(err.Error()))))
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprintf(w, `<span class="text-red-600">Error: %s</span>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
 
-	disclose, err := s.config.Options.Disclosure()
+	// Same rules as "Send all" and the CLI: config filters, resend window, daily cap.
+	plan, err := sendplan.ForConfig([]broker.Broker{*br}, s.config.Options, s.historyStore, time.Now(), 0, false)
 	if err != nil {
-		_, _ = fmt.Fprintf(w, `<span class="text-red-600">Config error: %s</span>`, template.HTMLEscapeString(err.Error()))
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = fmt.Fprintf(w, `<span class="text-red-600">Error: %s</span>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
-
-	// Generate email content using template engine
-	rendered, err := s.tmplEngine.Render("generic", s.config.Profile, disclose, *br)
-	if err != nil {
-		w.Write([]byte(fmt.Sprintf(`<span class="text-red-600">Template error: %s</span>`, template.HTMLEscapeString(err.Error()))))
+	if len(plan.Send) == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprintf(w, `<span class="text-yellow-600">%s</span>`, template.HTMLEscapeString(skipReason(plan, s.config.Options)))
 		return
-	}
-
-	msg := email.Message{
-		To:       br.Email,
-		From:     s.config.Email.From,
-		FromName: s.config.Profile.FullName(),
-		Subject:  rendered.Subject,
-		Body:     rendered.Body,
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	result := sender.Send(ctx, msg)
-
-	// Record in history
-	record := &history.Record{
-		BrokerID:   br.ID,
-		BrokerName: br.Name,
-		Email:      br.Email,
-		Template:   "generic",
-		SentAt:     time.Now(),
+	record, err := d.Deliver(ctx, disclose, *br)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = fmt.Fprintf(w, `<span class="text-red-600">Error: %s</span>`, template.HTMLEscapeString(err.Error()))
+		return
 	}
 
-	if result.Success {
-		record.Status = history.StatusSent
-		record.MessageID = result.MessageID
-	} else {
-		record.Status = history.StatusFailed
-		if result.Error != nil {
-			record.Error = result.Error.Error()
-		}
-	}
-
-	if s.historyStore != nil {
-		s.historyStore.Add(record)
-	}
-
-	if result.Success {
+	if record.Status == history.StatusSent {
 		w.Write([]byte(`<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Sent</span>`))
 	} else {
-		errMsg := "Unknown error"
-		if result.Error != nil {
-			errMsg = result.Error.Error()
-		}
-		w.Write([]byte(fmt.Sprintf(`<span class="text-red-600" title="%s">Failed</span>`, template.HTMLEscapeString(errMsg))))
+		_, _ = fmt.Fprintf(w, `<span class="text-red-600" title="%s">Failed</span>`, template.HTMLEscapeString(record.Error))
+	}
+}
+
+// deliverer builds the shared send path from the current config.
+func (s *Server) deliverer() (sendplan.Deliverer, config.Disclosure, error) {
+	if s.historyStore == nil {
+		return sendplan.Deliverer{}, config.Disclosure{}, fmt.Errorf("history database not available")
+	}
+	disclose, err := s.config.Options.Disclosure()
+	if err != nil {
+		return sendplan.Deliverer{}, config.Disclosure{}, err
+	}
+	sender, err := s.newSender(s.config.Email)
+	if err != nil {
+		return sendplan.Deliverer{}, config.Disclosure{}, err
+	}
+	return sendplan.Deliverer{Config: s.config, Engine: s.tmplEngine, Sender: sender, Store: s.historyStore}, disclose, nil
+}
+
+// skipReason explains why a plan has nothing to send.
+func skipReason(plan sendplan.Plan, opts config.Options) string {
+	switch {
+	case len(plan.SkippedRecent) > 0 && plan.Deferred == 0:
+		return fmt.Sprintf("Already sent within the last %d days (resend_after_days).", opts.EffectiveResendAfterDays())
+	case plan.Deferred > 0:
+		return fmt.Sprintf("Daily limit of %d emails per 24 hours reached (%d sent). Try again later.", opts.EffectiveDailyLimit(), plan.SentInWindow)
+	default:
+		return "Nothing to send: excluded by your settings (regions or excluded_brokers)."
 	}
 }
 
 func (s *Server) handleAPISendAll(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	writeErr := func(code int, msg string) {
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	}
 
 	// Rate limiting - prevent abuse of bulk email sending
 	if !s.rateLimiter.Allow("send-all") {
-		w.WriteHeader(http.StatusTooManyRequests)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Rate limit exceeded. Please wait before sending another batch."})
+		writeErr(http.StatusTooManyRequests, "Rate limit exceeded. Please wait before sending another batch.")
 		return
 	}
 
 	// Check if a job is already running
 	if activeJob := s.jobManager.GetActive(); activeJob != nil {
 		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"error":  "A send job is already in progress",
 			"job_id": activeJob.ID,
 		})
@@ -822,13 +786,7 @@ func (s *Server) handleAPISendAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.config == nil || s.config.Email.Provider == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Email not configured. Please configure email settings first."})
-		return
-	}
-	if _, err := s.config.Options.Disclosure(); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		writeErr(http.StatusBadRequest, "Email not configured. Please configure email settings first.")
 		return
 	}
 
@@ -843,216 +801,89 @@ func (s *Server) handleAPISendAll(w http.ResponseWriter, r *http.Request) {
 		status = "pending"
 	}
 
-	toSend := slices.DeleteFunc(s.getBrokersWithStatus(search, category, region, status),
-		func(b BrokerWithStatus) bool { return !b.EmailAccepted() })
-
-	if len(toSend) == 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "No pending brokers to send to."})
-		return
+	var candidates []broker.Broker
+	for _, b := range s.getBrokersWithStatus(search, category, region, status) {
+		candidates = append(candidates, b.Broker)
 	}
 
-	// Create email sender (validate config before starting job)
-	sender, err := email.NewSender(s.config.Email)
+	d, disclose, err := s.deliverer()
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		writeErr(http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// Create a new job
-	job := s.jobManager.Create(len(toSend))
-
-	// Extract broker IDs for persistence
-	brokerIDs := make([]string, len(toSend))
-	for i, b := range toSend {
-		brokerIDs[i] = b.ID
+	// Same rules as the CLI: config filters, resend window, daily cap.
+	plan, err := sendplan.ForConfig(candidates, s.config.Options, s.historyStore, time.Now(), 0, false)
+	if err != nil {
+		writeErr(http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(plan.Send) == 0 {
+		writeErr(http.StatusBadRequest, skipReason(plan, s.config.Options))
+		return
 	}
 
-	// Save initial job state
-	jobState := &PersistentJobState{
-		ID:               job.ID,
-		Status:           job.Status,
-		Sent:             0,
-		Failed:           0,
-		Total:            len(toSend),
-		StartedAt:        job.StartedAt,
-		RemainingBrokers: brokerIDs,
-		Search:           search,
-		Category:         category,
-		Region:           region,
-		StatusFilter:     status,
-	}
-	if err := s.jobPersistence.Save(jobState); err != nil {
-		log.Printf("Warning: failed to save job state: %v", err)
-	}
+	job := s.jobManager.Create(len(plan.Send))
+	job.SetDailyLimit(s.config.Options.EffectiveDailyLimit(), plan.SentInWindow)
+	go s.processSendJob(job, plan.Send, d, disclose)
 
-	// Start background goroutine to process emails
-	go s.processSendJob(job, toSend, sender)
-
-	// Return job ID immediately
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"job_id": job.ID,
-		"total":  len(toSend),
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"job_id":         job.ID,
+		"total":          len(plan.Send),
+		"skipped_recent": len(plan.SkippedRecent),
+		"deferred":       plan.Deferred,
 	})
 }
 
-// processSendJob runs in a background goroutine to send emails
-func (s *Server) processSendJob(job *Job, toSend []BrokerWithStatus, sender email.Sender) {
-	sent := 0
-	failed := 0
-	rateLimitMs := s.config.Options.RateLimitMs
-	if rateLimitMs == 0 {
-		rateLimitMs = 2000 // Default 2 second delay
+// processSendJob runs in a background goroutine. The plan already applied the
+// daily cap and resend rules; every send goes through the shared Deliverer.
+func (s *Server) processSendJob(job *Job, brokers []broker.Broker, d sendplan.Deliverer, disclose config.Disclosure) {
+	sent, failed := 0, 0
+	rateLimit := time.Duration(s.config.Options.RateLimitMs) * time.Millisecond
+	if rateLimit <= 0 {
+		rateLimit = 2 * time.Second
 	}
 
-	// The daily cap counts sends recorded in history over the last 24h, so
-	// restarting the server or mixing CLI and web sends can't exceed it.
-	dailyLimit := s.config.Options.EffectiveDailyLimit()
-	sentInWindow := 0
-	if s.historyStore != nil {
-		n, err := s.historyStore.CountSentSince(sendplan.WindowStart(time.Now()))
-		if err != nil {
-			job.StopWithError("history", "Could not read send history: "+err.Error())
-			return
-		}
-		sentInWindow = n
-	}
-	headroom := max(dailyLimit-sentInWindow, 0)
-	job.DailyLimit = dailyLimit
-
-	disclose, err := s.config.Options.Disclosure()
-	if err != nil {
-		job.StopWithError("config", err.Error())
-		return
-	}
-
-	// Track remaining brokers for persistence
-	remaining := make([]string, len(toSend))
-	for i, b := range toSend {
-		remaining[i] = b.ID
-	}
-
-	for i, b := range toSend {
-		// Check if job was cancelled
+	for i, b := range brokers {
 		if job.IsCancelled() {
 			break
 		}
+		job.Update(sent, failed, b.Name)
 
-		// Check daily limit
-		if sent >= headroom {
-			job.DaySent = sentInWindow + sent
-			job.Status = JobStatusPaused
-			job.Error = fmt.Sprintf("Daily limit of %d emails per 24 hours reached. Remaining %d brokers can be sent later.", dailyLimit, len(remaining))
-			s.saveJobProgress(job, sent, failed, remaining)
-			log.Printf("Job paused: daily limit of %d reached, %d remaining", dailyLimit, len(remaining))
+		ctx, cancel := context.WithTimeout(job.Context(), 30*time.Second)
+		record, err := d.Deliver(ctx, disclose, b)
+		cancel()
+		if err != nil {
+			// Without a history record the send would be repeated, so stop.
+			job.Update(sent, failed, "")
+			job.StopWithError("history", "Stopped: "+err.Error())
+			log.Printf("Job stopped: %v", err)
 			return
 		}
 
-		// Update current broker
-		job.Update(sent, failed, b.Name)
-
-		// Generate email
-		rendered, err := s.tmplEngine.Render("generic", s.config.Profile, disclose, b.Broker)
-		if err != nil {
-			failed++
-			job.Update(sent, failed, b.Name)
-			// Remove from remaining even on failure
-			remaining = remaining[1:]
-			s.saveJobProgress(job, sent, failed, remaining)
-			continue
-		}
-
-		msg := email.Message{
-			To:       b.Email,
-			From:     s.config.Email.From,
-			FromName: s.config.Profile.FullName(),
-			Subject:  rendered.Subject,
-			Body:     rendered.Body,
-		}
-
-		// Use job's context with timeout for cancellation support
-		ctx, cancel := context.WithTimeout(job.Context(), 30*time.Second)
-		result := sender.Send(ctx, msg)
-		cancel()
-
-		// Record in history
-		record := &history.Record{
-			BrokerID:   b.ID,
-			BrokerName: b.Name,
-			Email:      b.Email,
-			Template:   "generic",
-			SentAt:     time.Now(),
-		}
-
-		if result.Success {
-			record.Status = history.StatusSent
-			record.MessageID = result.MessageID
+		if record.Status == history.StatusSent {
 			sent++
-			job.ResetAuthFailures() // Reset on success
+			job.ResetAuthFailures()
 		} else {
-			record.Status = history.StatusFailed
-			errMsg := ""
-			if result.Error != nil {
-				errMsg = result.Error.Error()
-				record.Error = errMsg
-			}
 			failed++
-
-			// Check for auth failures and stop if too many consecutive
-			if strings.Contains(strings.ToLower(errMsg), "auth") {
-				if job.RecordAuthFailure() {
-					// Stop job due to auth errors
-					if s.historyStore != nil {
-						s.historyStore.Add(record)
-					}
-					remaining = remaining[1:]
-					s.saveJobProgress(job, sent, failed, remaining)
-					job.StopWithError("auth", "Stopped due to repeated authentication failures. Your email provider may have rate-limited or blocked your account. Please check your email settings and try again later.")
-					log.Printf("Job stopped: repeated auth failures after %d sent, %d failed", sent, failed)
-					return
-				}
+			if strings.Contains(strings.ToLower(record.Error), "auth") && job.RecordAuthFailure() {
+				job.Update(sent, failed, "")
+				job.StopWithError("auth", "Stopped due to repeated authentication failures. Your email provider may have rate-limited or blocked your account. Please check your email settings and try again later.")
+				log.Printf("Job stopped: repeated auth failures after %d sent, %d failed", sent, failed)
+				return
 			}
 		}
-
-		if s.historyStore != nil {
-			s.historyStore.Add(record)
-		}
-
-		// Update job progress
 		job.Update(sent, failed, b.Name)
 
-		// Remove processed broker from remaining and save state
-		remaining = remaining[1:]
-		s.saveJobProgress(job, sent, failed, remaining)
-
-		// Rate limit delay (skip on last item)
-		if i < len(toSend)-1 && !job.IsCancelled() {
-			time.Sleep(time.Duration(rateLimitMs) * time.Millisecond)
+		if i < len(brokers)-1 {
+			select {
+			case <-job.Context().Done():
+			case <-time.After(rateLimit):
+			}
 		}
 	}
 
-	// Mark job as complete and clear persisted state
 	job.Complete()
-	if err := s.jobPersistence.Clear(); err != nil {
-		log.Printf("Warning: failed to clear job state: %v", err)
-	}
-}
-
-// saveJobProgress saves the current job progress to disk
-func (s *Server) saveJobProgress(job *Job, sent, failed int, remaining []string) {
-	state := &PersistentJobState{
-		ID:               job.ID,
-		Status:           job.Status,
-		Sent:             sent,
-		Failed:           failed,
-		Total:            job.Total,
-		StartedAt:        job.StartedAt,
-		RemainingBrokers: remaining,
-	}
-	if err := s.jobPersistence.Save(state); err != nil {
-		log.Printf("Warning: failed to save job progress: %v", err)
-	}
 }
 
 // Helper methods
@@ -1269,9 +1100,14 @@ func (s *Server) handleSetupProfile(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Session error", http.StatusInternalServerError)
 			return
 		}
-		s.updateSession(r, func(sess *Session) {
+		s.updateSessionFor(session, func(sess *Session) {
 			sess.Step = "email"
 			sess.Profile = profile
+			// Start the email step from the saved settings, so a blank
+			// password field keeps the saved password.
+			if sess.Email.Provider == "" && s.config != nil {
+				sess.Email = s.config.Email
+			}
 		})
 		http.Redirect(w, r, "/setup/email", http.StatusFound)
 		return
@@ -1281,6 +1117,8 @@ func (s *Server) handleSetupProfile(w http.ResponseWriter, r *http.Request) {
 	var profile config.Profile
 	if session != nil {
 		profile = session.Profile
+	} else if s.config != nil {
+		profile = s.config.Profile // re-running setup: start from saved values
 	}
 	data := map[string]interface{}{
 		"Title":   "Setup - Profile",
@@ -1408,7 +1246,7 @@ func (s *Server) handleSetupTestSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create email sender with the session config
-	sender, err := email.NewSender(session.Email)
+	sender, err := s.newSender(session.Email)
 	if err != nil {
 		w.Write([]byte(fmt.Sprintf(`
 			<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
@@ -1479,14 +1317,16 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := &config.Config{
-		Profile: session.Profile,
-		Email:   session.Email,
-		Options: config.Options{
-			Template:    "generic",
-			RateLimitMs: 2000,
-		},
+	// Start from the existing config so re-running setup only changes the
+	// profile and email settings it asked about (inbox, exclusions,
+	// disclosure, limits, and so on are kept).
+	cfg := &config.Config{Options: config.Options{Template: "generic", RateLimitMs: 2000}}
+	if s.config != nil {
+		existing := *s.config
+		cfg = &existing
 	}
+	cfg.Profile = session.Profile
+	cfg.Email = session.Email
 
 	if err := config.Save(s.configPath, cfg); err != nil {
 		data := map[string]interface{}{
@@ -1550,6 +1390,13 @@ func (s *Server) getSession(r *http.Request) *Session {
 		return nil
 	}
 	return s.sessions.Get(cookie.Value)
+}
+
+// updateSessionFor updates a session by ID. Use it right after
+// getOrCreateSession: a session created in this request isn't in the
+// request's cookies yet, so updateSession would silently do nothing.
+func (s *Server) updateSessionFor(sess *Session, updateFn func(*Session)) bool {
+	return s.sessions.Update(sess.ID, updateFn)
 }
 
 func (s *Server) updateSession(r *http.Request, updateFn func(*Session)) bool {
@@ -2540,4 +2387,18 @@ func (s *Server) handleAPIJobCancel(w http.ResponseWriter, r *http.Request) {
 
 	job.Cancel()
 	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+}
+
+// removeLegacyJobFile deletes pending_job.json left by older versions, which
+// auto-resumed bulk sends on startup. Send history now makes resuming
+// unnecessary: "Send all" skips brokers already sent to.
+func removeLegacyJobFile() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	path := filepath.Join(home, ".eraser", "pending_job.json")
+	if err := os.Remove(path); err == nil {
+		log.Printf("Removed %s; interrupted sends are no longer auto-resumed. Use \"Send all\" to continue.", path)
+	}
 }

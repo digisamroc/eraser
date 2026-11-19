@@ -500,9 +500,11 @@ function showError(message) {
     const progressArea = document.getElementById('send-all-progress');
     progressArea.innerHTML = `
         <div class="bg-red-100 text-red-800 px-4 py-3 rounded">
-            <strong>Error:</strong> ${message}
+            <strong>Error:</strong> <span class="error-text"></span>
         </div>
     `;
+    // textContent, not innerHTML: messages can include config values.
+    progressArea.querySelector('.error-text').textContent = message;
 }
 
 function resetButton() {

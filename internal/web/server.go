@@ -1792,18 +1792,13 @@ func (s *Server) handleTaskComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status := r.FormValue("status")
-	if status == "" {
-		status = "completed"
-	}
-
 	if s.historyStore == nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`<span class="text-red-600">Database not available</span>`))
 		return
 	}
 
-	if err := s.historyStore.CompletePendingTask(taskID, status); err != nil {
+	if err := s.historyStore.CompletePendingTask(taskID, "completed"); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, `<span class="text-red-600">Error: %s</span>`, template.HTMLEscapeString(err.Error()))
 		return

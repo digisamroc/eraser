@@ -312,3 +312,25 @@ func TestNewStoreRejectsQuestionMarkInPath(t *testing.T) {
 		t.Fatal("NewStore accepted a path containing '?'")
 	}
 }
+
+// Tasks end as completed or skipped; nothing else is stored.
+func TestCompletePendingTaskRejectsUnknownStatus(t *testing.T) {
+	s := newTestStore(t)
+	task := &PendingTask{BrokerID: "a", BrokerName: "A", TaskType: TaskCaptcha, Status: "pending"}
+	if err := s.AddPendingTask(task); err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{"pending", "bogus", ""} {
+		if err := s.CompletePendingTask(task.ID, status); err == nil {
+			t.Errorf("status %q accepted", status)
+		}
+	}
+	if got, _ := s.GetPendingTaskByID(task.ID); got.Status != "pending" {
+		t.Errorf("status = %q after rejected updates", got.Status)
+	}
+	for _, status := range []string{"completed", "skipped"} {
+		if err := s.CompletePendingTask(task.ID, status); err != nil {
+			t.Errorf("status %q: %v", status, err)
+		}
+	}
+}

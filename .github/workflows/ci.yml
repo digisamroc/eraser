@@ -55,6 +55,17 @@ jobs:
           # Legacy code is fixed phase by phase; only new issues fail CI.
           only-new-issues: true
 
+  css:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: app.css is up to date
+        run: |
+          scripts/build-css.sh
+          git diff --exit-code -- internal/web/static/css/app.css \
+            || { echo "::error::app.css is stale; run scripts/build-css.sh and commit it"; exit 1; }
+
   secrets:
     runs-on: ubuntu-latest
     steps:

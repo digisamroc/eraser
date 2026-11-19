@@ -10,9 +10,9 @@ repos:
         args: [--maxkb=600]
       - id: detect-private-key
       - id: end-of-file-fixer
-        exclude: \.min\.(js|css)$
+        exclude: \.min\.(js|css)$|^internal/web/static/css/app\.css$  # generated; must match build output byte-for-byte
       - id: trailing-whitespace
-        exclude: \.min\.(js|css)$
+        exclude: \.min\.(js|css)$|^internal/web/static/css/app\.css$  # generated; must match build output byte-for-byte
       - id: mixed-line-ending
         args: [--fix=lf]
 

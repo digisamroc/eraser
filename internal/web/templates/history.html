@@ -44,12 +44,9 @@
         btn.disabled = true;
         btn.innerHTML = '<span class="animate-spin">⏳</span> Clearing...';
 
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-
         try {
             const resp = await fetch('/api/history/failed', {
-                method: 'DELETE',
-                headers: { 'X-CSRF-Token': csrfToken }
+                method: 'DELETE'
             });
             const data = await resp.json();
 

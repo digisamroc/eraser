@@ -12,7 +12,6 @@ require (
 	github.com/emersion/go-message v0.18.2
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/csrf v1.7.3
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -27,7 +26,6 @@ require (
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.3.2 // indirect
-	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect

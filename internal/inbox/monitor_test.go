@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -31,6 +32,12 @@ import (
 type fetchLog struct {
 	mu      sync.Mutex
 	fetches []fetchCall
+
+	// backend serializes access to the memory backend, which has no locking
+	// of its own; tests add messages while the server reads.
+	backend  sync.Mutex
+	selects  int    // mailbox Status calls (one per SELECT/EXAMINE), under mu
+	onSearch func() // if set, runs (once) before the next SEARCH, under mu
 }
 
 type fetchCall struct {
@@ -59,8 +66,11 @@ func (l *fetchLog) bodyFetches(mailbox string) []fetchCall {
 
 type recBackend struct {
 	*memory.Backend
-	log *fetchLog
+	log     *fetchLog
+	updates chan backend.Update // pushed to clients, e.g. during IDLE
 }
+
+func (b recBackend) Updates() <-chan backend.Update { return b.updates }
 
 func (b recBackend) Login(ci *imap.ConnInfo, user, pass string) (backend.User, error) {
 	u, err := b.Backend.Login(ci, user, pass)
@@ -92,7 +102,61 @@ func (m recMailbox) ListMessages(uid bool, seq *imap.SeqSet, items []imap.FetchI
 	m.log.mu.Lock()
 	m.log.fetches = append(m.log.fetches, fetchCall{m.Name(), seq.String(), append([]imap.FetchItem(nil), items...)})
 	m.log.mu.Unlock()
+	m.log.backend.Lock()
+	defer m.log.backend.Unlock()
 	return m.Mailbox.ListMessages(uid, seq, items, ch)
+}
+
+func (m recMailbox) Info() (*imap.MailboxInfo, error) {
+	m.log.backend.Lock()
+	defer m.log.backend.Unlock()
+	return m.Mailbox.Info()
+}
+
+func (m recMailbox) Status(items []imap.StatusItem) (*imap.MailboxStatus, error) {
+	m.log.mu.Lock()
+	m.log.selects++
+	m.log.mu.Unlock()
+	m.log.backend.Lock()
+	defer m.log.backend.Unlock()
+	return m.Mailbox.Status(items)
+}
+
+func (m recMailbox) SearchMessages(uid bool, criteria *imap.SearchCriteria) ([]uint32, error) {
+	m.log.mu.Lock()
+	hook := m.log.onSearch
+	m.log.onSearch = nil
+	m.log.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	m.log.backend.Lock()
+	defer m.log.backend.Unlock()
+	return m.Mailbox.SearchMessages(uid, criteria)
+}
+
+func (m recMailbox) CreateMessage(flags []string, date time.Time, body imap.Literal) error {
+	m.log.backend.Lock()
+	defer m.log.backend.Unlock()
+	return m.Mailbox.CreateMessage(flags, date, body)
+}
+
+func (m recMailbox) UpdateMessagesFlags(uid bool, seq *imap.SeqSet, op imap.FlagsOp, flags []string) error {
+	m.log.backend.Lock()
+	defer m.log.backend.Unlock()
+	return m.Mailbox.UpdateMessagesFlags(uid, seq, op, flags)
+}
+
+func (m recMailbox) CopyMessages(uid bool, seq *imap.SeqSet, dest string) error {
+	m.log.backend.Lock()
+	defer m.log.backend.Unlock()
+	return m.Mailbox.CopyMessages(uid, seq, dest)
+}
+
+func (m recMailbox) Expunge() error {
+	m.log.backend.Lock()
+	defer m.log.backend.Unlock()
+	return m.Mailbox.Expunge()
 }
 
 func testTLS(t *testing.T) (*tls.Config, *x509.CertPool) {
@@ -119,6 +183,7 @@ func testTLS(t *testing.T) (*tls.Config, *x509.CertPool) {
 }
 
 type imapFixture struct {
+	backend recBackend
 	monitor *Monitor
 	cfg     config.InboxConfig
 	tls     *tls.Config
@@ -146,14 +211,17 @@ func addMessage(t *testing.T, u backend.User, mailbox, raw string) uint32 {
 	if err := mb.CreateMessage(nil, time.Now(), bytes.NewBufferString(raw)); err != nil {
 		t.Fatal(err)
 	}
-	mem := mb.(recMailbox).Mailbox.(*memory.Mailbox)
+	rec := mb.(recMailbox)
+	rec.log.backend.Lock()
+	defer rec.log.backend.Unlock()
+	mem := rec.Mailbox.(*memory.Mailbox)
 	return mem.Messages[len(mem.Messages)-1].Uid
 }
 
 func newIMAPFixture(t *testing.T) *imapFixture {
 	t.Helper()
 	log := &fetchLog{}
-	be := recBackend{memory.New(), log}
+	be := recBackend{memory.New(), log, make(chan backend.Update, 16)}
 	tlsCfg, pool := testTLS(t)
 
 	srv := server.New(be)
@@ -169,7 +237,7 @@ func newIMAPFixture(t *testing.T) *imapFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &imapFixture{user: u, log: log, uids: map[string]uint32{}}
+	f := &imapFixture{backend: be, user: u, log: log, uids: map[string]uint32{}}
 
 	// INBOX already holds one personal message (UID 6) from the memory backend.
 	f.uids["friend"] = addMessage(t, u, "INBOX", message("Friend <friend@gmail.com>", "dinner?", nil,
@@ -458,5 +526,157 @@ func TestFetchBounceReadsDeliveryReport(t *testing.T) {
 	}
 	if !strings.Contains(e.Body, "Address not found") {
 		t.Errorf("Body = %q", e.Body)
+	}
+}
+
+// notifyNewMail tells clients with INBOX selected about new mail. The server
+// writes "* N EXISTS" and "* N RECENT": two updates for one message, as real
+// servers commonly do.
+func (f *imapFixture) notifyNewMail(t *testing.T) {
+	t.Helper()
+	mb, err := f.user.GetMailbox("INBOX")
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := mb.Status([]imap.StatusItem{imap.StatusMessages, imap.StatusRecent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.backend.updates <- &backend.MailboxUpdate{Update: backend.NewUpdate("username", "INBOX"), MailboxStatus: status}
+}
+
+func TestWatchDeliversEachNewMessage(t *testing.T) {
+	f := newIMAPFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	got := make(chan Email, 10)
+	// Open INBOX before the watch starts, so no SELECT overlaps a pushed
+	// update: go-imap's test server reads a connection's selected mailbox
+	// without a lock when pushing (a server-side race, not ours).
+	if err := f.monitor.examine("INBOX"); err != nil {
+		t.Fatal(err)
+	}
+	var watchErr error
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		watchErr = f.monitor.WatchForNewEmails(ctx, func(e Email) { got <- e })
+	}()
+	// Registered after the fixture's, so it runs first: stop the watch before
+	// the connection is closed, on every exit path.
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-watchDone:
+		case <-time.After(5 * time.Second):
+		}
+	})
+
+	for i := range 3 {
+		time.Sleep(100 * time.Millisecond)
+		subject := fmt.Sprintf("Done %d", i)
+		addMessage(t, f.user, "INBOX", message("Acme Privacy <privacy@acme.example>", subject,
+			[]string{"Authentication-Results: mx.test; dmarc=pass header.from=acme.example"}, "Request completed."))
+		f.notifyNewMail(t)
+		select {
+		case e := <-got:
+			if e.Subject != subject || e.BrokerID != "acme" {
+				t.Fatalf("message %d: got %q from %q", i, e.Subject, e.BrokerID)
+			}
+		case <-time.After(5 * time.Second):
+			cancel()
+			t.Fatalf("message %d never delivered: the watch is stuck", i)
+		}
+	}
+
+	// The watch must stay idle between messages. Re-selecting the folder on
+	// each fetch made the server's SELECT replies look like new mail: a loop.
+	selects := func() int {
+		f.log.mu.Lock()
+		defer f.log.mu.Unlock()
+		return f.log.selects
+	}
+	before := selects()
+	time.Sleep(300 * time.Millisecond)
+	if after := selects(); after != before {
+		t.Errorf("watch keeps selecting the mailbox while idle (%d -> %d): busy loop", before, after)
+	}
+
+	cancel()
+	select {
+	case <-watchDone:
+		if !errors.Is(watchErr, context.Canceled) {
+			t.Errorf("watch ended with %v, want context.Canceled", watchErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("watch did not stop after cancel")
+	}
+}
+
+// A server that accepts the connection but never answers must not hang a
+// scan past its deadline.
+func TestConnectHonorsContext(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+		}
+	}()
+	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port, _ := strconv.Atoi(portStr)
+
+	m := NewMonitor(config.InboxConfig{Server: "127.0.0.1", Port: port, Email: "u", Password: "p"}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- m.Connect(ctx) }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Connect succeeded against a silent server")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Connect ignored its context deadline")
+	}
+}
+
+// A message that arrives between SELECT and SEARCH is returned by this fetch;
+// the next fetch must start after it, or it is delivered twice.
+func TestFetchSinceNeverReturnsAMessageTwice(t *testing.T) {
+	f := newIMAPFixture(t)
+	ctx := context.Background()
+	_, next, err := f.monitor.fetchSince(ctx, "INBOX", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var lateUID uint32
+	f.log.mu.Lock()
+	f.log.onSearch = func() {
+		lateUID = addMessage(t, f.user, "INBOX", message("Acme Privacy <privacy@acme.example>", "Late",
+			[]string{"Authentication-Results: mx.test; dmarc=pass header.from=acme.example"}, "Request completed."))
+	}
+	f.log.mu.Unlock()
+
+	first, next, err := f.monitor.fetchSince(ctx, "INBOX", next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 1 || first[0].UID != lateUID {
+		t.Fatalf("first fetch = %v, want the late message (UID %d)", first, lateUID)
+	}
+	again, _, err := f.monitor.fetchSince(ctx, "INBOX", next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("late message delivered again: %v (next=%d)", again, next)
 	}
 }

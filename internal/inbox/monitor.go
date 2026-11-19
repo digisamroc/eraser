@@ -5,10 +5,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/textproto"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +40,12 @@ type Monitor struct {
 	sentIDs    map[string]string // Message-ID of a sent request -> broker ID
 	authServ   AuthServ          // identifies the provider's Authentication-Results header
 	tlsConfig  *tls.Config       // nil uses the system roots; set by tests
+
+	// The folder currently open read-only, and its UIDNEXT as last known.
+	// Re-selecting it on every fetch is wasteful, and in watch mode the
+	// server's SELECT replies (EXISTS, RECENT) would look like new mail.
+	examined     string
+	examinedNext uint32
 }
 
 // Email represents a parsed email from a broker
@@ -156,19 +165,37 @@ func (m *Monitor) assignBroker(e *Email) {
 	}
 }
 
-// Connect establishes IMAP connection
+// Connect connects and logs in over TLS. ctx bounds the whole handshake:
+// a server that accepts the connection but never answers can't hang a scan.
 func (m *Monitor) Connect(ctx context.Context) error {
-	addr := fmt.Sprintf("%s:%d", m.config.Server, m.config.Port)
+	addr := net.JoinHostPort(m.config.Server, strconv.Itoa(m.config.Port))
 
-	c, err := client.DialTLS(addr, m.tlsConfig)
+	conn, err := (&tls.Dialer{Config: m.tlsConfig}).DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to connect to IMAP server: %w", err)
 	}
-	if err := c.Login(m.config.Email, m.config.Password); err != nil {
-		_ = c.Logout()
-		return fmt.Errorf("failed to login: %w", err)
+	// go-imap has no context support: bound the greeting and login by the
+	// deadline, and close the connection if ctx is cancelled first.
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
 	}
-	m.client = c
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+
+	c, err := client.New(conn)
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("failed to connect to IMAP server: %w", errors.Join(err, ctx.Err()))
+	}
+	if err := c.Login(m.config.Email, m.config.Password); err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("failed to login: %w", errors.Join(err, ctx.Err()))
+	}
+	if !stop() {
+		return fmt.Errorf("failed to connect to IMAP server: %w", ctx.Err())
+	}
+	_ = conn.SetDeadline(time.Time{}) // the session itself may outlive ctx (watch mode)
+	m.client, m.examined = c, ""
 	return nil
 }
 
@@ -218,15 +245,14 @@ func (m *Monitor) fetchSince(ctx context.Context, folder string, from uint32) ([
 func isBrokerEmail(e *Email) bool { return e.BrokerID != "" }
 
 // fetch runs a search in folder, keeps messages whose envelope passes keep,
-// and downloads full bodies only for those. It returns the folder's UIDNEXT.
+// and downloads full bodies only for those. It returns the UID the next
+// incremental fetch should start from.
 func (m *Monitor) fetch(ctx context.Context, folder string, criteria *imap.SearchCriteria, keep func(*Email) bool) ([]Email, uint32, error) {
 	if m.client == nil {
 		return nil, 0, fmt.Errorf("not connected to IMAP server")
 	}
-	// Read-only (EXAMINE): the server cannot change any flags.
-	mbox, err := m.client.Select(folder, true)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to select mailbox %s: %w", folder, err)
+	if err := m.examine(folder); err != nil {
+		return nil, 0, err
 	}
 	uids, err := m.client.UidSearch(criteria)
 	if err != nil {
@@ -273,7 +299,27 @@ func (m *Monitor) fetch(ctx context.Context, folder string, criteria *imap.Searc
 	for _, e := range kept {
 		out = append(out, *e)
 	}
-	return out, mbox.UidNext, nil
+	// UIDNEXT is from SELECT; mail arriving before the SEARCH is in uids too,
+	// so the next fetch must start after the highest UID seen.
+	for _, uid := range uids {
+		m.examinedNext = max(m.examinedNext, uid+1)
+	}
+	return out, m.examinedNext, nil
+}
+
+// examine opens folder read-only (EXAMINE), so the server cannot change any
+// flags, unless it is already open that way.
+func (m *Monitor) examine(folder string) error {
+	if m.examined == folder {
+		return nil
+	}
+	mbox, err := m.client.Select(folder, true)
+	if err != nil {
+		m.examined = ""
+		return fmt.Errorf("failed to select mailbox %s: %w", folder, err)
+	}
+	m.examined, m.examinedNext = folder, mbox.UidNext
+	return nil
 }
 
 // uidFetch fetches items for uids in batches and calls fn for each message.
@@ -422,24 +468,45 @@ func isBounceEnvelope(e *Email) bool {
 
 // WatchForNewEmails monitors for new broker emails (blocking). Each message
 // is delivered once: only UIDs above the last one seen are fetched.
+//
+// go-imap blocks its connection until each update is read from
+// client.Updates, and servers often send several per message (EXISTS, then
+// RECENT), including while we fetch. So one goroutine drains the channel for
+// the life of the connection and turns mailbox updates into a "new mail"
+// signal; nothing else ever reads it.
 func (m *Monitor) WatchForNewEmails(ctx context.Context, callback func(Email)) error {
 	if m.client == nil {
 		return fmt.Errorf("not connected to IMAP server")
 	}
-	mbox, err := m.client.Select(m.config.Folder, true)
-	if err != nil {
-		return fmt.Errorf("failed to select mailbox: %w", err)
+	if err := m.examine(m.config.Folder); err != nil {
+		return err
 	}
-	next := mbox.UidNext
+	next := m.examinedNext
 
+	newMail := make(chan struct{}, 1)
 	updates := make(chan client.Update)
 	m.client.Updates = updates
-
-	stop := make(chan struct{})
-	idleDone := make(chan error, 1)
-	go func() { idleDone <- m.client.Idle(stop, nil) }()
+	go func() {
+		for {
+			select {
+			case u := <-updates:
+				if _, ok := u.(*client.MailboxUpdate); ok {
+					select {
+					case newMail <- struct{}{}:
+					default: // a fetch is already due
+					}
+				}
+			case <-m.client.LoggedOut():
+				return
+			}
+		}
+	}()
 
 	for {
+		stop := make(chan struct{})
+		idleDone := make(chan error, 1)
+		go func() { idleDone <- m.client.Idle(stop, nil) }()
+
 		select {
 		case <-ctx.Done():
 			close(stop)
@@ -447,31 +514,26 @@ func (m *Monitor) WatchForNewEmails(ctx context.Context, callback func(Email)) e
 				log.Printf("IDLE ended during shutdown: %v", err)
 			}
 			return ctx.Err()
-		case update := <-updates:
-			if _, ok := update.(*client.MailboxUpdate); !ok {
-				continue
-			}
-			close(stop)
-			if err := <-idleDone; err != nil {
-				return fmt.Errorf("IDLE error: %w", err)
-			}
-
-			emails, newNext, err := m.fetchSince(ctx, m.config.Folder, next)
-			if err != nil {
-				log.Printf("Error fetching new email: %v", err)
-			} else {
-				next = max(next, newNext)
-				for _, e := range emails {
-					callback(e)
-				}
-			}
-
-			stop = make(chan struct{})
-			go func() { idleDone <- m.client.Idle(stop, nil) }()
 		case err := <-idleDone:
 			if err != nil {
 				return fmt.Errorf("IDLE error: %w", err)
 			}
+			continue // IDLE ended on its own; start it again
+		case <-newMail:
+			close(stop)
+			if err := <-idleDone; err != nil {
+				return fmt.Errorf("IDLE error: %w", err)
+			}
+		}
+
+		emails, newNext, err := m.fetchSince(ctx, m.config.Folder, next)
+		if err != nil {
+			log.Printf("Error fetching new email: %v", err)
+			continue
+		}
+		next = max(next, newNext)
+		for _, e := range emails {
+			callback(e)
 		}
 	}
 }
@@ -525,6 +587,7 @@ func (m *Monitor) ArchiveEmails(emails []Email, dest string) (int, error) {
 		return 0, nil
 	}
 
+	m.examined = "" // opened read-write below
 	if _, err := m.client.Select(src, false); err != nil {
 		return 0, fmt.Errorf("failed to select mailbox: %w", err)
 	}

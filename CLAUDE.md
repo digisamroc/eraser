@@ -62,7 +62,10 @@ Each of these closes a real bug or leak. Tests cover them.
   and doesn't change pipeline status. Store responses with `inbox.Record`,
   which replaces a row in full (body, links and flag from one email).
   Bounces count only via `inbox.VerifyBounce` (refers to a sent Message-ID).
-  UIDs are per-folder.
+  UIDs are per-folder. go-imap blocks its connection until each update is
+  read: in watch mode one goroutine drains `client.Updates` for the whole
+  session, and a fetch only re-EXAMINEs when the folder changes (SELECT
+  replies would otherwise look like new mail). `Connect` honors its ctx.
 - **fill/confirm:** pages must pass `broker.OwnsURL` (https, broker's
   organizational domain or under its registered opt-out URL). `fill` checks
   before navigating, after load, after CAPTCHA waits and before submitting.

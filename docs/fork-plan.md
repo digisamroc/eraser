@@ -467,6 +467,28 @@ Status: done. Items 1–4. Notes:
 
 ### 9D: Watch mode
 
+Status: done. Items 1 and 2, plus three bugs found while testing:
+- The deadlock is real: a test pushing EXISTS + RECENT during IDLE (the
+  test backend now implements go-imap's `BackendUpdater`) never got the
+  first message with the old code.
+- Draining the channel exposed a busy loop: go-imap also reports our own
+  SELECT's EXISTS/RECENT as updates, so re-selecting on each fetch looked
+  like new mail, forever. The monitor now remembers the folder it has open
+  read-only and doesn't re-select it.
+- Duplicate delivery: the next UID came from the SELECT snapshot, so a
+  message arriving between SELECT and SEARCH was delivered twice. It now
+  starts after the highest UID the search returned.
+- If IDLE ever ended without an error, the old loop never restarted it and
+  the next notification hung. It now restarts IDLE (not covered by a test:
+  go-imap's client only returns from IDLE when asked to).
+- go-imap's test server has its own race (pushing updates vs. a SELECT in
+  progress); the watch test opens the folder before watching to avoid it.
+- verify: watch delivers three messages once each and stays idle in
+  between; `Connect` returns at its deadline against a silent server; a
+  message added mid-fetch isn't returned again. 20/20 under `-race`. The
+  old `WatchForNewEmails` and `Connect`, and each other fix reverted, make
+  a test fail.
+
 1. **`monitor --watch` will probably deadlock.** go-imap v1 blocks on every
    send to `client.Updates`; `WatchForNewEmails` stops reading the channel
    while IDLE shuts down and while it fetches. Servers commonly send two

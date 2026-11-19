@@ -128,7 +128,7 @@ type Exclusion struct {
 // LoadManual reads the overlay file.
 func LoadManual(path string) (Manual, error) {
 	var m Manual
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path is the operator's -manual flag
 	if err != nil {
 		return m, fmt.Errorf("failed to read %s: %w", path, err)
 	}

@@ -25,7 +25,11 @@ repos:
     rev: v2.15.0
     hooks:
       # Lints only lines changed relative to HEAD so legacy code doesn't block commits.
+      # cd to the physical path first: golangci-lint matches changed lines using
+      # $PWD, and in a symlinked checkout (e.g. ~/src -> ~/Dropbox/src) every
+      # issue is silently filtered out.
       - id: golangci-lint
+        entry: bash -c 'cd "$(pwd -P)" && exec golangci-lint run --new-from-rev HEAD --fix'
       - id: golangci-lint-config-verify
 
   - repo: local

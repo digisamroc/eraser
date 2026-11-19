@@ -24,17 +24,17 @@ type Monitor struct {
 
 // Email represents a parsed email from a broker
 type Email struct {
-	UID         uint32 // IMAP UID for operations like move/delete
-	MessageID   string
-	From        string
-	FromName    string // Sender display name (e.g., "Mail Delivery System")
-	FromDomain  string
-	Subject     string
-	Body        string
-	HTMLBody    string
-	ReceivedAt  time.Time
-	BrokerID    string // Matched broker ID (if found)
-	BrokerName  string // Matched broker name (if found)
+	UID        uint32 // IMAP UID for operations like move/delete
+	MessageID  string
+	From       string
+	FromName   string // Sender display name (e.g., "Mail Delivery System")
+	FromDomain string
+	Subject    string
+	Body       string
+	HTMLBody   string
+	ReceivedAt time.Time
+	BrokerID   string // Matched broker ID (if found)
+	BrokerName string // Matched broker name (if found)
 }
 
 // NewMonitor creates a new inbox monitor

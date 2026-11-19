@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,7 +23,7 @@ type ConfirmationResult struct {
 
 // ConfirmationHandler handles clicking confirmation links from emails
 type ConfirmationHandler struct {
-	client       *http.Client
+	client        *http.Client
 	brokerDomains map[string]bool
 }
 
@@ -105,7 +106,7 @@ func (h *ConfirmationHandler) ClickConfirmationLink(confirmURL string, validateD
 		}
 		if !valid {
 			result.ErrorMessage = fmt.Sprintf("domain %s is not a known broker domain", domain)
-			return result, fmt.Errorf(result.ErrorMessage)
+			return result, errors.New(result.ErrorMessage)
 		}
 	}
 

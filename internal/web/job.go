@@ -18,8 +18,8 @@ const (
 	JobStatusRunning   JobStatus = "running"
 	JobStatusCompleted JobStatus = "completed"
 	JobStatusCancelled JobStatus = "cancelled"
-	JobStatusPaused    JobStatus = "paused"    // Paused due to daily limit
-	JobStatusError     JobStatus = "error"     // Stopped due to auth/config error
+	JobStatusPaused    JobStatus = "paused" // Paused due to daily limit
+	JobStatusError     JobStatus = "error"  // Stopped due to auth/config error
 )
 
 // Job represents a background email sending job
@@ -34,13 +34,13 @@ type Job struct {
 	StartedAt     time.Time `json:"started_at"`
 	CompletedAt   time.Time `json:"completed_at,omitempty"`
 	Error         string    `json:"error,omitempty"`
-	ErrorType     string    `json:"error_type,omitempty"`   // "auth", "rate_limit", etc.
-	DailyLimit    int       `json:"daily_limit,omitempty"`  // Max emails per day
-	DaySent       int       `json:"day_sent,omitempty"`     // Emails sent today
+	ErrorType     string    `json:"error_type,omitempty"`  // "auth", "rate_limit", etc.
+	DailyLimit    int       `json:"daily_limit,omitempty"` // Max emails per day
+	DaySent       int       `json:"day_sent,omitempty"`    // Emails sent today
 
-	ctx              context.Context
-	cancelFunc       context.CancelFunc
-	mu               sync.Mutex
+	ctx                  context.Context
+	cancelFunc           context.CancelFunc
+	mu                   sync.Mutex
 	consecutiveAuthFails int // Track consecutive auth failures
 }
 

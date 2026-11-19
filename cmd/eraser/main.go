@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/eraser-privacy/eraser/internal/broker"
 	"github.com/eraser-privacy/eraser/internal/browser"
 	"github.com/eraser-privacy/eraser/internal/config"
@@ -21,6 +20,7 @@ import (
 	"github.com/eraser-privacy/eraser/internal/inbox"
 	"github.com/eraser-privacy/eraser/internal/template"
 	"github.com/eraser-privacy/eraser/internal/web"
+	"github.com/spf13/cobra"
 )
 
 var (

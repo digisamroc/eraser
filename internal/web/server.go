@@ -18,15 +18,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/gorilla/csrf"
 	"github.com/eraser-privacy/eraser/internal/broker"
 	"github.com/eraser-privacy/eraser/internal/config"
 	"github.com/eraser-privacy/eraser/internal/email"
 	"github.com/eraser-privacy/eraser/internal/history"
 	"github.com/eraser-privacy/eraser/internal/inbox"
 	emaTemplate "github.com/eraser-privacy/eraser/internal/template"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/gorilla/csrf"
 )
 
 //go:embed static/*
@@ -36,9 +36,9 @@ var staticFS embed.FS
 var templatesFS embed.FS
 
 const (
-	defaultRateLimit   = 30
-	defaultRateWindow  = time.Minute
-	defaultSessionTTL  = 30 * time.Minute
+	defaultRateLimit  = 30
+	defaultRateWindow = time.Minute
+	defaultSessionTTL = 30 * time.Minute
 )
 
 type RateLimiter struct {
@@ -1018,9 +1018,9 @@ type Stats struct {
 // BrokerWithStatus combines broker info with history status
 type BrokerWithStatus struct {
 	broker.Broker
-	Status     string // "never", "sent", "failed"
-	LastSent   string // formatted date or empty
-	TotalSent  int
+	Status    string // "never", "sent", "failed"
+	LastSent  string // formatted date or empty
+	TotalSent int
 }
 
 // getBrokersWithStatus returns brokers with their history status
@@ -2498,4 +2498,3 @@ func (s *Server) handleAPIJobCancel(w http.ResponseWriter, r *http.Request) {
 	job.Cancel()
 	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
 }
-

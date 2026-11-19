@@ -1,0 +1,66 @@
+name: Registry sync
+
+# Regenerates data/brokers.yaml from the California CPPA data broker registry
+# and opens a PR when it changes. Data only: no secrets, never sends email.
+#
+# Requires: Settings > Actions > General > "Allow GitHub Actions to create and
+# approve pull requests". PRs opened with GITHUB_TOKEN do not trigger CI, so
+# this job runs the tests itself before opening one.
+on:
+  schedule:
+    - cron: '0 12 3 * *' # 12:00 UTC on the 3rd of each month
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: registry-sync
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Regenerate broker list
+        run: go run ./cmd/registry-import -check-mx -report "$RUNNER_TEMP/report.md"
+
+      - name: Test
+        run: go test ./...
+
+      - name: Open PR if changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- data/brokers.yaml; then
+            echo "No registry changes."
+            exit 0
+          fi
+          branch="registry-sync/$(date -u +%Y-%m)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$branch"
+          git add data/brokers.yaml
+          git commit -m "Sync broker list with CPPA registry ($(date -u +%Y-%m-%d))"
+          git push --force -u origin "$branch"
+          {
+            echo "Automated refresh from https://cppa.ca.gov/data_broker_registry/."
+            echo
+            echo "Review new and removed brokers before merging."
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/report.md"
+            echo '```'
+          } > "$RUNNER_TEMP/body.md"
+          gh pr view "$branch" >/dev/null 2>&1 \
+            && gh pr edit "$branch" --body-file "$RUNNER_TEMP/body.md" \
+            || gh pr create --base main --head "$branch" \
+                 --title "Sync broker list with CPPA registry ($(date -u +%Y-%m))" \
+                 --body-file "$RUNNER_TEMP/body.md"

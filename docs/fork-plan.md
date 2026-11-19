@@ -142,6 +142,21 @@ Status: done. All items below, plus:
 
 ## Phase 4: Browser automation (`fill`, `confirm`)
 
+Status: split into two PRs.
+- **4A: done.** chromedp v0.9.5 → v0.24 (item 7), item 4, plus a real-Chrome
+  test harness (`internal/browser/browser_test.go`; skipped with `-short`,
+  required in CI).
+  - Found: the browser was started inside the first form's timeout context,
+    so it was killed when that form finished. `fill --pending` never handled
+    a second form ("context canceled"). It now starts in `New`.
+  - Submitting: no `:contains()` selectors and no blind Enter. Only a submit
+    control inside a form that has filled fields is clicked. If there's none,
+    the result says to submit by hand. (My first version could click an
+    unrelated "Delete my account" button on the page; a test now covers that.)
+  - Removed unused helpers (GetPageHTML, GetPageTitle, WaitForNavigation,
+    EnablePageEvents, FillDropdown, CheckCheckbox, DetectFormFields).
+- **4B:** items 1, 2, 3, 5, 6.
+
 1. `fill` gets the same domain check as `confirm`. The form URL host must match
    the broker's registered domain. There is no override when the URL came from
    the inbox; `--url` overrides are only for URLs the user typed.

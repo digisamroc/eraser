@@ -206,7 +206,7 @@
         </div>
 
         <!-- Needs Review -->
-        <div class="card p-4 cursor-pointer hover:ring-2 hover:ring-orange-400 transition-all" onclick="filterResponses('unknown')">
+        <div class="card p-4 cursor-pointer hover:ring-2 hover:ring-orange-400 transition-all" data-action="filter-responses" data-filter="unknown">
             <div class="flex items-center gap-3">
                 <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: rgba(249, 115, 22, 0.15);">
                     <svg class="w-4 h-4 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -369,19 +369,6 @@
     </div>
 </div>
 
-<script>
-function filterResponses(type) {
-    // Update the dropdown
-    const dropdown = document.getElementById('response-filter');
-    if (dropdown) {
-        dropdown.value = type;
-        // Trigger HTMX request
-        htmx.trigger(dropdown, 'change');
-    }
-    // Scroll to responses section
-    document.getElementById('response-list').scrollIntoView({ behavior: 'smooth' });
-}
-</script>
 {{end}}
 
 {{define "response-list-content"}}

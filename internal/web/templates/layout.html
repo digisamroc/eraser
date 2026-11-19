@@ -9,6 +9,8 @@
     <!-- All assets are local: built by scripts/build-css.sh; htmx 1.9.10 verified against npm. -->
     <link rel="stylesheet" href="/static/css/app.css">
     <script src="/static/js/htmx.min.js" integrity="sha384-D1Kt99CQMDuVetoL1lrYwg5t+9QdHe7NLX/SoJYkXDFfX37iInKRy5xLSi8nO7UC"></script>
+    <!-- All page behavior; the CSP allows no inline scripts. Not deferred: it sets the theme before first paint. -->
+    <script src="/static/js/app.js"></script>
 
     <style>
         /* ============================================
@@ -502,35 +504,6 @@
         }
     </style>
 
-    <script>
-        // Theme management
-        const getTheme = () => {
-            const stored = localStorage.getItem('eraser-theme');
-            if (stored) return stored;
-            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        };
-
-        const setTheme = (theme) => {
-            document.documentElement.classList.toggle('light', theme === 'light');
-            localStorage.setItem('eraser-theme', theme);
-
-            // Update toggle icon
-            const toggle = document.getElementById('theme-toggle');
-            if (toggle) {
-                toggle.innerHTML = theme === 'light'
-                    ? '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>'
-                    : '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>';
-            }
-        };
-
-        const toggleTheme = () => {
-            const current = getTheme();
-            setTheme(current === 'dark' ? 'light' : 'dark');
-        };
-
-        // Initialize theme immediately to prevent flash
-        setTheme(getTheme());
-    </script>
 </head>
 <body>
     <!-- Navigation -->
@@ -558,14 +531,14 @@
                     </div>
 
                     <!-- Theme Toggle -->
-                    <button id="theme-toggle" class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme">
+                    <button id="theme-toggle" class="theme-toggle" data-action="toggle-theme" aria-label="Toggle theme">
                         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
                         </svg>
                     </button>
 
                     <!-- Mobile Menu Button -->
-                    <button class="mobile-menu sm:hidden theme-toggle" onclick="document.getElementById('mobile-nav').classList.toggle('hidden')">
+                    <button class="mobile-menu sm:hidden theme-toggle" data-action="toggle" data-target="mobile-nav">
                         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
                         </svg>
@@ -609,12 +582,6 @@
         </div>
     </footer>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Initialize theme toggle icon
-            setTheme(getTheme());
-        });
-    </script>
 </body>
 </html>
 {{end}}

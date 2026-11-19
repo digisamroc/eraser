@@ -164,11 +164,11 @@
                     <svg class="progress-ring w-32 h-32" viewBox="0 0 100 100">
                         <circle class="progress-ring-bg" cx="50" cy="50" r="45" fill="none" stroke-width="8"/>
                         <circle class="progress-ring-fill" cx="50" cy="50" r="45" fill="none" stroke-width="8"
-                            stroke-dasharray="283"
+                            stroke-dasharray="283" style="stroke-dashoffset: {{.ProgressOffset}}"
                             id="progress-circle"/>
                     </svg>
                     <div class="absolute inset-0 flex flex-col items-center justify-center">
-                        <span class="font-display text-2xl font-bold text-primary" id="progress-percent">0%</span>
+                        <span class="font-display text-2xl font-bold text-primary" id="progress-percent">{{.ProgressPercent}}%</span>
                         <span class="text-xs text-muted">complete</span>
                     </div>
                 </div>
@@ -198,20 +198,6 @@
                     </div>
                 </div>
             </div>
-            <script>
-                (function() {
-                    const sent = {{.Stats.Sent}};
-                    const total = {{.Stats.TotalBrokers}};
-                    const percent = total > 0 ? (sent / total * 100).toFixed(0) : 0;
-                    const circle = document.getElementById('progress-circle');
-                    const percentEl = document.getElementById('progress-percent');
-
-                    // Calculate stroke-dashoffset (283 is circumference of r=45)
-                    const offset = 283 - (283 * percent / 100);
-                    circle.style.strokeDashoffset = offset;
-                    percentEl.textContent = percent + '%';
-                })();
-            </script>
         </div>
         {{end}}
 

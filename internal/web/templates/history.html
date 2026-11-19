@@ -23,7 +23,7 @@
         </div>
         <button
             id="clear-failed-btn"
-            onclick="clearFailedRecords()"
+            data-action="clear-failed"
             class="px-4 py-2 rounded-lg text-sm font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors flex items-center gap-2"
         >
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -36,46 +36,6 @@
     <!-- Clear result message -->
     <div id="clear-result" class="mb-4"></div>
 
-    <script>
-    async function clearFailedRecords() {
-        if (!confirm('Delete all failed records? This cannot be undone.')) return;
-
-        const btn = document.getElementById('clear-failed-btn');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="animate-spin">⏳</span> Clearing...';
-
-        try {
-            const resp = await fetch('/api/history/failed', {
-                method: 'DELETE'
-            });
-            const data = await resp.json();
-
-            if (resp.ok) {
-                document.getElementById('clear-result').innerHTML = `
-                    <div class="bg-green-100 text-green-800 px-4 py-3 rounded">
-                        ${data.message}. <a href="/history" class="underline">Refresh page</a>
-                    </div>
-                `;
-            } else {
-                throw new Error(data.error || 'Failed to clear records');
-            }
-        } catch (err) {
-            document.getElementById('clear-result').innerHTML = `
-                <div class="bg-red-100 text-red-800 px-4 py-3 rounded">
-                    Error: ${err.message}
-                </div>
-            `;
-        }
-
-        btn.disabled = false;
-        btn.innerHTML = `
-            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-            </svg>
-            Clear Failed
-        `;
-    }
-    </script>
 
     {{if .History}}
     <!-- Stats Summary -->
@@ -85,30 +45,18 @@
             <p class="text-sm text-muted">Total Requests</p>
         </div>
         <div class="card p-4 text-center">
-            <p class="font-display text-2xl font-bold text-success" id="sent-count">0</p>
+            <p class="font-display text-2xl font-bold text-success" id="sent-count">{{.SentCount}}</p>
             <p class="text-sm text-muted">Successful</p>
         </div>
         <div class="card p-4 text-center">
-            <p class="font-display text-2xl font-bold text-error" id="failed-count">0</p>
+            <p class="font-display text-2xl font-bold text-error" id="failed-count">{{.FailedCount}}</p>
             <p class="text-sm text-muted">Failed</p>
         </div>
         <div class="card p-4 text-center">
-            <p class="font-display text-2xl font-bold text-accent" id="success-rate">0%</p>
+            <p class="font-display text-2xl font-bold text-accent" id="success-rate">{{.SuccessRate}}%</p>
             <p class="text-sm text-muted">Success Rate</p>
         </div>
     </div>
-    <script>
-        (function() {
-            let sent = 0, failed = 0;
-            {{range .History}}
-            {{if eq .Status "sent"}}sent++;{{else}}failed++;{{end}}
-            {{end}}
-            document.getElementById('sent-count').textContent = sent;
-            document.getElementById('failed-count').textContent = failed;
-            const total = sent + failed;
-            document.getElementById('success-rate').textContent = total > 0 ? Math.round(sent / total * 100) + '%' : '0%';
-        })();
-    </script>
 
     <!-- History Timeline -->
     <div class="card overflow-hidden">

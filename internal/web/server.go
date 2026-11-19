@@ -925,7 +925,8 @@ func (s *Server) processSendJob(job *Job, brokers []broker.Broker, d sendplan.De
 		if err != nil {
 			// Without a history record the send would be repeated, so stop.
 			job.Update(sent, failed, "")
-			job.StopWithError("history", "Stopped: "+err.Error())
+			job.StopWithError("history", fmt.Sprintf("Stopped: the email to %s may have been sent, but it couldn't be "+
+				"recorded in history, so Eraser can't tell it was sent. Check your Sent folder before sending again. (%v)", b.Name, err))
 			log.Printf("Job stopped: %v", err)
 			return
 		}

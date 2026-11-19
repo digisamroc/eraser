@@ -129,7 +129,7 @@
             const resp = await fetch(`/api/job/${currentJobId}/status`);
             const job = await resp.json();
             updateProgressDisplay(job);
-            if (job.status === 'completed' || job.status === 'cancelled') {
+            if (['completed', 'cancelled', 'error'].includes(job.status)) {
                 stopPolling();
                 showCompletionMessage(job);
                 resetButton();
@@ -148,7 +148,8 @@
         }
     }
 
-    // Job fields used below are numbers from our own API.
+    // Job fields put into HTML below are numbers from our own API; the error
+    // message goes through showError, which sets it as text.
     function showCompletionMessage(job) {
         const progressArea = byId('send-all-progress');
         const remaining = job.total - job.sent - job.failed;
@@ -182,21 +183,8 @@
             return;
         }
 
-        if (job.status === 'paused') {
-            progressArea.innerHTML = `
-                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <div class="flex items-start gap-3">
-                        <svg class="w-6 h-6 text-blue-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                        </svg>
-                        <div>
-                            <h3 class="font-semibold text-blue-800">Daily Limit Reached</h3>
-                            <p class="text-blue-700 text-sm mt-1">Sent ${job.sent} emails in this run; the 24-hour limit has been reached.</p>
-                            <p class="text-sm text-gray-600 mt-2">${remaining} brokers remaining; send them once the 24-hour limit has room again.</p>
-                        </div>
-                    </div>
-                </div>
-            `;
+        if (job.status === 'error') {
+            showError(job.error || 'The send job stopped.');
             return;
         }
 

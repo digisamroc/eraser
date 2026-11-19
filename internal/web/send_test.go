@@ -20,9 +20,18 @@ import (
 )
 
 type recordingSender struct {
-	mu    sync.Mutex
-	sent  []email.Message
-	block chan struct{} // if set, each Send waits for it to close
+	mu     sync.Mutex
+	sent   []email.Message
+	block  chan struct{} // if set, each Send waits for it to close
+	onSend func()        // if set, runs during each Send (see setOnSend)
+}
+
+// setOnSend sets a hook that runs during each Send, e.g. to break history so
+// the send can't be recorded.
+func (r *recordingSender) setOnSend(fn func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onSend = fn
 }
 
 func (r *recordingSender) Name() string { return "recording" }
@@ -32,6 +41,9 @@ func (r *recordingSender) Send(_ context.Context, m email.Message) email.Result 
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.onSend != nil {
+		r.onSend()
+	}
 	r.sent = append(r.sent, m)
 	return email.Result{Success: true, MessageID: fmt.Sprintf("<%d@example.com>", len(r.sent))}
 }
@@ -302,5 +314,27 @@ func TestSendOneRefusedWhileJobRuns(t *testing.T) {
 	}
 	if got := f.sender.recipients(); len(got) != 2 {
 		t.Fatalf("recipients = %v, want each broker once", got)
+	}
+}
+
+// When a send can't be recorded, the job stops with an error (not
+// "completed") that says the email may have gone out unrecorded.
+func TestSendAllStopsWithErrorWhenHistoryFails(t *testing.T) {
+	f := newSendFixture(t, config.Options{}, brokersN("a", "b", "c"))
+	f.sender.setOnSend(func() { _ = f.store.Close() })
+
+	body, code := f.sendAll(t)
+	if code != http.StatusOK {
+		t.Fatalf("send-all: %d %v", code, body)
+	}
+	st := f.waitForJob(t, body["job_id"].(string))
+	if st["status"] != JobStatusError || st["error_type"] != "history" {
+		t.Errorf("status=%v error_type=%v, want error/history", st["status"], st["error_type"])
+	}
+	if msg, _ := st["error"].(string); !strings.Contains(msg, "may have been sent") {
+		t.Errorf("error = %q, want a warning that the email may have been sent", msg)
+	}
+	if n := len(f.sender.recipients()); n != 1 {
+		t.Errorf("sent %d emails after history failed, want 1", n)
 	}
 }

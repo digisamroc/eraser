@@ -120,11 +120,14 @@ type Override struct {
 	SourceURL string   `yaml:"source_url"`
 }
 
-// Exclusion drops a registry entry, matched by email address.
+// Exclusion drops a registry entry, matched by email address. It needs a
+// reason and either an https source_url or, for local evidence such as a
+// bounce notification, an evidence note.
 type Exclusion struct {
 	Email     string `yaml:"email"`
 	Reason    string `yaml:"reason"`
-	SourceURL string `yaml:"source_url"`
+	SourceURL string `yaml:"source_url,omitempty"`
+	Evidence  string `yaml:"evidence,omitempty"`
 }
 
 // LoadManual reads the overlay file.
@@ -312,8 +315,10 @@ func (m Manual) validate() error {
 		if strings.TrimSpace(x.Reason) == "" {
 			return fmt.Errorf("exclusion for %s: reason is required", x.Email)
 		}
-		if err := requireSource(x.SourceURL); err != nil {
-			return fmt.Errorf("exclusion for %s: %w", x.Email, err)
+		if strings.TrimSpace(x.Evidence) == "" {
+			if err := requireSource(x.SourceURL); err != nil {
+				return fmt.Errorf("exclusion for %s: needs an https source_url or an evidence note", x.Email)
+			}
 		}
 	}
 	return nil
@@ -411,6 +416,9 @@ var (
 	nonAlnum        = regexp.MustCompile(`[^a-z0-9]+`)
 	corporateSuffix = regexp.MustCompile(`(-(inc|llc|ltd|corp|corporation|co|company|lp|llp|plc|l-l-c|incorporated|limited))+$`)
 )
+
+// Slug turns a broker name into an id ("Acme Data, Inc." -> "acme-data").
+func Slug(name string) string { return slug(name) }
 
 func slug(name string) string {
 	s := strings.Trim(nonAlnum.ReplaceAllString(strings.ToLower(name), "-"), "-")

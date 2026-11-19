@@ -135,7 +135,7 @@ func NewStore(dbPath string) (*Store, error) {
 
 	store := &Store{db: db}
 	if err := store.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return store, nil
@@ -144,8 +144,10 @@ func NewStore(dbPath string) (*Store, error) {
 func (s *Store) migrate() error {
 	// First, try to add new columns to existing databases
 	// These must run before the index creation below
-	s.db.Exec(`ALTER TABLE removal_requests ADD COLUMN pipeline_status TEXT DEFAULT 'email_sent'`)
-	s.db.Exec(`ALTER TABLE pending_tasks ADD COLUMN opened_at DATETIME`)
+	// Each fails harmlessly when the column already exists (or, on a new
+	// database, the table doesn't yet; CREATE TABLE below covers that).
+	_, _ = s.db.Exec(`ALTER TABLE removal_requests ADD COLUMN pipeline_status TEXT DEFAULT 'email_sent'`)
+	_, _ = s.db.Exec(`ALTER TABLE pending_tasks ADD COLUMN opened_at DATETIME`)
 	// email_body was read and written but never created, so every insert
 	// into broker_responses failed on databases made by older versions.
 	// These fail harmlessly when the column (or, on a new database, the
@@ -255,21 +257,6 @@ func (s *Store) Add(record *Record) error {
 	return nil
 }
 
-func (s *Store) GetLastRequestForBroker(brokerID string) (*Record, error) {
-	query := `
-	SELECT id, broker_id, broker_name, email, template, status, message_id, error, sent_at, created_at
-	FROM removal_requests WHERE broker_id = ? ORDER BY sent_at DESC LIMIT 1`
-
-	record, err := scanRecord(s.db.QueryRow(query, brokerID))
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to query record: %w", err)
-	}
-	return record, nil
-}
-
 func (s *Store) GetRecentRequests(limit int) ([]Record, error) {
 	query := `
 	SELECT id, broker_id, broker_name, email, template, status, message_id, error, sent_at, created_at
@@ -279,7 +266,7 @@ func (s *Store) GetRecentRequests(limit int) ([]Record, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query records: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var records []Record
 	for rows.Next() {
@@ -640,7 +627,7 @@ func (s *Store) GetResponseStats() (map[string]int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query response stats: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	stats := make(map[string]int)
 	for rows.Next() {
@@ -694,7 +681,7 @@ func (s *Store) GetFormsWithStatus() ([]FormWithStatus, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query forms: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var forms []FormWithStatus
 	seen := make(map[string]bool) // Dedupe by broker_id
@@ -819,7 +806,7 @@ func (s *Store) GetPendingTasks(taskType TaskType, status string) ([]PendingTask
 	if err != nil {
 		return nil, fmt.Errorf("failed to query pending tasks: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var tasks []PendingTask
 	for rows.Next() {
@@ -931,7 +918,7 @@ func (s *Store) GetPipelineStats() (map[PipelineStatus]int, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query pipeline stats: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	stats := make(map[PipelineStatus]int)
 	for rows.Next() {

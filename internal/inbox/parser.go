@@ -340,36 +340,6 @@ func stripHTMLSimple(html string) string {
 	return re.ReplaceAllString(html, " ")
 }
 
-// ExtractConfirmationToken tries to extract a token from a confirmation URL
-func ExtractConfirmationToken(confirmURL string) string {
-	parsed, err := url.Parse(confirmURL)
-	if err != nil {
-		return ""
-	}
-
-	// Common token parameter names
-	tokenParams := []string{"token", "code", "verify", "confirmation", "key", "id"}
-
-	query := parsed.Query()
-	for _, param := range tokenParams {
-		if val := query.Get(param); val != "" {
-			return val
-		}
-	}
-
-	// Check if token might be in the path
-	parts := strings.Split(parsed.Path, "/")
-	for i, part := range parts {
-		if part == "confirm" || part == "verify" {
-			if i+1 < len(parts) && len(parts[i+1]) > 10 {
-				return parts[i+1]
-			}
-		}
-	}
-
-	return ""
-}
-
 // GetPrimaryFormURL returns the most likely opt-out form URL using scoring
 func GetPrimaryFormURL(urls ExtractedURLs, brokerDomain string) string {
 	if len(urls.FormURLs) == 0 {

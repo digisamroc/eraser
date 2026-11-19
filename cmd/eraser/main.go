@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -20,6 +22,7 @@ import (
 	"github.com/eraser-privacy/eraser/internal/email"
 	"github.com/eraser-privacy/eraser/internal/history"
 	"github.com/eraser-privacy/eraser/internal/inbox"
+	"github.com/eraser-privacy/eraser/internal/registry"
 	"github.com/eraser-privacy/eraser/internal/sendplan"
 	"github.com/eraser-privacy/eraser/internal/template"
 	"github.com/eraser-privacy/eraser/internal/web"
@@ -464,7 +467,7 @@ func runStatus(limit int) error {
 	if err != nil {
 		return fmt.Errorf("failed to open history: %w", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	// Get overall stats
 	total, sent, failed, err := store.GetStats()
@@ -521,51 +524,63 @@ func runStatus(limit int) error {
 	return nil
 }
 
+// manualPath is the hand-maintained overlay next to the broker database.
+func manualPath(brokerPath string) string {
+	return filepath.Join(filepath.Dir(brokerPath), "brokers.manual.yaml")
+}
+
+// runAddBroker records a broker in data/brokers.manual.yaml (so it survives
+// regeneration from the registry) and adds it to data/brokers.yaml now.
 func runAddBroker() error {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Println("➕ Add New Data Broker")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("Brokers registered in California are already in the list; this is for others.")
 	fmt.Println()
 
-	b := broker.Broker{}
-
+	b := broker.Broker{Source: registry.SourceManual}
 	b.Name = prompt(reader, "Broker name: ")
-	b.ID = strings.ToLower(strings.ReplaceAll(b.Name, " ", "-"))
-	b.Email = prompt(reader, "Privacy/removal email: ")
+	b.ID = registry.Slug(b.Name)
+	b.Email = strings.ToLower(prompt(reader, "Privacy/removal email: "))
 	b.Website = prompt(reader, "Website (optional): ")
 	b.OptOutURL = prompt(reader, "Opt-out URL (optional): ")
-	b.Region = prompt(reader, "Region (us/eu/global): ")
-	b.Category = prompt(reader, "Category (people-search/marketing/background-check): ")
+	b.Region = prompt(reader, "Region (us/eu/global) [us]: ")
+	if b.Region == "" {
+		b.Region = "us"
+	}
+	b.Category = prompt(reader, "Category (people-search/marketing/background-check/data-broker) [data-broker]: ")
+	if b.Category == "" {
+		b.Category = "data-broker"
+	}
+	b.SourceURL = prompt(reader, "Source URL (required; the https page where you found this contact): ")
 
-	// Load existing brokers
-	brokerPath := brokerFile
-	if brokerPath == "" {
-		brokerPath = "data/brokers.yaml"
+	brokerPath := resolveBrokerPath()
+	brokerDB, err := broker.LoadFromFile(brokerPath)
+	if err != nil {
+		return fmt.Errorf("failed to load brokers: %w", err)
+	}
+	if existing := brokerDB.FindByID(b.ID); existing != nil {
+		return fmt.Errorf("a broker with ID %q already exists (%s)", b.ID, existing.Email)
+	}
+	if existing := brokerDB.FindByEmail(b.Email); existing != nil {
+		return fmt.Errorf("%s already belongs to broker %q", b.Email, existing.ID)
 	}
 
-	var brokerDB *broker.BrokerDatabase
-	if _, err := os.Stat(brokerPath); os.IsNotExist(err) {
-		brokerDB = &broker.BrokerDatabase{}
-	} else {
-		var err error
-		brokerDB, err = broker.LoadFromFile(brokerPath)
-		if err != nil {
-			return fmt.Errorf("failed to load brokers: %w", err)
-		}
-	}
-
-	if err := brokerDB.Add(b); err != nil {
+	// Validates the entry (email, personal mailbox, source URL) before writing.
+	if err := registry.AddToManual(manualPath(brokerPath), b); err != nil {
 		return err
 	}
-
-	if err := brokerDB.Save(brokerPath); err != nil {
+	brokerDB.Brokers = append(brokerDB.Brokers, b)
+	if err := brokerDB.Validate(); err != nil {
+		return err
+	}
+	if err := registry.WriteDatabase(brokerPath, brokerDB); err != nil {
 		return fmt.Errorf("failed to save brokers: %w", err)
 	}
 
 	fmt.Println()
-	fmt.Printf("✅ Added %s to broker database\n", b.Name)
-
+	fmt.Printf("✅ Added %s to %s and %s\n", b.Name, manualPath(brokerPath), brokerPath)
 	return nil
 }
 
@@ -591,7 +606,7 @@ func runServe(port int) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize history: %w", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	// Initialize email template engine
 	tmplEngine, err := template.NewEngine()
@@ -614,7 +629,9 @@ func runServe(port int) error {
 		fmt.Println("\nShutting down...")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		server.Shutdown(ctx)
+		if err := server.Shutdown(ctx); err != nil {
+			fmt.Printf("Shutdown error: %v\n", err)
+		}
 	}()
 
 	return server.Start()
@@ -723,7 +740,7 @@ func runMonitor(days int, once bool, watch bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize history: %w", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	// Create inbox monitor; sent Message-IDs let it match replies by In-Reply-To.
 	monitor := inbox.NewMonitor(cfg.Inbox, brokerDB.Brokers)
@@ -747,7 +764,7 @@ func runMonitor(days int, once bool, watch bool) error {
 	if err := monitor.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to inbox: %w", err)
 	}
-	defer monitor.Disconnect()
+	defer func() { _ = monitor.Disconnect() }()
 
 	fmt.Printf("📬 Monitoring inbox for broker responses (last %d days)...\n", days)
 	fmt.Println()
@@ -833,7 +850,7 @@ func runMonitor(days int, once bool, watch bool) error {
 			}
 		})
 
-		if err != nil && err != context.Canceled {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			return fmt.Errorf("watch error: %w", err)
 		}
 	}
@@ -885,7 +902,7 @@ func runPipelineStatus() error {
 	if err != nil {
 		return fmt.Errorf("failed to open history: %w", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	fmt.Println("🔄 Pipeline Status")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -1563,7 +1580,7 @@ func runCleanupBounces(remove bool, days int) error {
 	if err := monitor.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to inbox: %w", err)
 	}
-	defer monitor.Disconnect()
+	defer func() { _ = monitor.Disconnect() }()
 
 	// Fetch bounce emails
 	bounceEmails, err := monitor.FetchBounceEmails(ctx, days)
@@ -1601,6 +1618,12 @@ func runCleanupBounces(remove bool, days int) error {
 			fmt.Printf("⚠️  %s - not found in broker database\n", bouncedRecipient)
 			continue
 		}
+		// Only trust bounces your provider verified; otherwise a spoofed
+		// "undeliverable" email could remove a broker from your list.
+		if !email.Authenticated {
+			fmt.Printf("⚠️  %s - bounce notice not verified by your mail provider; skipping\n", bouncedRecipient)
+			continue
+		}
 
 		fmt.Printf("❌ %s\n", bouncedRecipient)
 		fmt.Printf("   Broker: %s (%s)\n", b.Name, b.ID)
@@ -1629,27 +1652,33 @@ func runCleanupBounces(remove bool, days int) error {
 		return nil
 	}
 
-	// Remove the brokers
-	fmt.Printf("\n🗑️  Removing %d broker(s) from database...\n\n", len(bouncedBrokers))
+	// Record exclusions in the manual file (so regeneration keeps them) and
+	// drop the brokers from the database now.
+	fmt.Printf("\n🗑️  Removing %d broker(s)...\n\n", len(bouncedBrokers))
 
-	removed := 0
+	var exclusions []registry.Exclusion
+	bounced := make(map[string]bool)
 	for _, bb := range bouncedBrokers {
-		if brokerDB.RemoveByEmail(bb.email) != nil {
-			fmt.Printf("✓ Removed %s (%s)\n", bb.broker.Name, bb.email)
-			removed++
-		}
+		exclusions = append(exclusions, registry.Exclusion{
+			Email:    bb.email,
+			Reason:   "Bounced: " + truncateString(bb.subject, 80),
+			Evidence: "Bounce notification received " + bb.receivedAt.Format("2006-01-02"),
+		})
+		bounced[strings.ToLower(bb.email)] = true
 	}
-
-	// Save with backup
-	if err := brokerDB.SaveWithBackup(brokerPath); err != nil {
+	if err := registry.ExcludeInManual(manualPath(brokerPath), exclusions); err != nil {
+		return err
+	}
+	before := len(brokerDB.Brokers)
+	brokerDB.Brokers = slices.DeleteFunc(brokerDB.Brokers, func(b broker.Broker) bool {
+		return bounced[strings.ToLower(b.Email)]
+	})
+	if err := registry.WriteDatabase(brokerPath, brokerDB); err != nil {
 		return fmt.Errorf("failed to save broker database: %w", err)
 	}
 
-	fmt.Println()
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("✓ Removed %d broker(s) with invalid email addresses\n", removed)
-	fmt.Printf("  Backup saved to: %s.bak\n", brokerPath)
-
+	fmt.Printf("✓ Removed %d broker(s); exclusions recorded in %s\n", before-len(brokerDB.Brokers), manualPath(brokerPath))
 	return nil
 }
 

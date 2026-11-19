@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -442,7 +443,9 @@ func openBrowser(url string) {
 		return
 	}
 
-	exec.Command(cmd, args...).Start()
+	if err := exec.Command(cmd, args...).Start(); err != nil { //nolint:gosec // G204: fixed per-OS opener with our own localhost URL
+		log.Printf("Could not open a browser (%v); visit %s", err, url)
+	}
 }
 
 // Handler implementations
@@ -656,18 +659,18 @@ func (s *Server) handleAPIDeleteFailed(w http.ResponseWriter, r *http.Request) {
 
 	if s.historyStore == nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Database not available"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "Database not available"})
 		return
 	}
 
 	deleted, err := s.historyStore.DeleteByStatus(history.StatusFailed)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"deleted": deleted,
 		"message": fmt.Sprintf("Deleted %d failed records", deleted),
 	})
@@ -1162,7 +1165,7 @@ func (s *Server) handleSetupEmail(w http.ResponseWriter, r *http.Request) {
 
 		// Parse SMTP configuration (Gmail SMTP)
 		emailCfg.SMTP.Host = strings.TrimSpace(r.FormValue("smtp_host"))
-		fmt.Sscanf(r.FormValue("smtp_port"), "%d", &emailCfg.SMTP.Port)
+		emailCfg.SMTP.Port, _ = strconv.Atoi(strings.TrimSpace(r.FormValue("smtp_port"))) // invalid -> 0 -> "port is required"
 		emailCfg.SMTP.Username = strings.TrimSpace(r.FormValue("smtp_username"))
 		emailCfg.SMTP.Password = strings.TrimSpace(r.FormValue("smtp_password"))
 		emailCfg.SMTP.UseTLS = r.FormValue("smtp_tls") == "on"
@@ -1264,12 +1267,12 @@ func (s *Server) handleSetupTestSend(w http.ResponseWriter, r *http.Request) {
 	// Create email sender with the session config
 	sender, err := s.newSender(session.Email)
 	if err != nil {
-		w.Write([]byte(fmt.Sprintf(`
+		fmt.Fprintf(w, `
 			<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
 				<strong>Configuration error:</strong> %s
 				<p class="mt-2 text-sm">Please check your email settings and try again.</p>
 			</div>
-		`, template.HTMLEscapeString(err.Error()))))
+		`, template.HTMLEscapeString(err.Error()))
 		return
 	}
 
@@ -1298,7 +1301,7 @@ Eraser`, session.Profile.FirstName),
 		if result.Error != nil {
 			errMsg = result.Error.Error()
 		}
-		w.Write([]byte(fmt.Sprintf(`
+		fmt.Fprintf(w, `
 			<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
 				<strong>Test failed:</strong> %s
 				<p class="mt-2 text-sm">Please check your email configuration and try again.</p>
@@ -1308,7 +1311,7 @@ Eraser`, session.Profile.FirstName),
 					Back to Email Settings
 				</a>
 			</div>
-		`, template.HTMLEscapeString(errMsg))))
+		`, template.HTMLEscapeString(errMsg))
 		return
 	}
 
@@ -1387,7 +1390,7 @@ func (s *Server) getOrCreateSession(w http.ResponseWriter, r *http.Request) *Ses
 	}
 
 	// Set secure session cookie (ID only, no credentials)
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: localhost is plain HTTP, so no Secure flag; HttpOnly and SameSite=Strict are set
 		Name:     "eraser_session",
 		Value:    sessionID,
 		Path:     "/",
@@ -1429,7 +1432,7 @@ func (s *Server) clearSession(w http.ResponseWriter, r *http.Request) {
 		s.sessions.Delete(cookie.Value)
 	}
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: localhost is plain HTTP, so no Secure flag; HttpOnly and SameSite=Strict are set
 		Name:     "eraser_session",
 		Value:    "",
 		Path:     "/",
@@ -1659,8 +1662,11 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	taskIDStr := chi.URLParam(r, "taskID")
-	var taskID int64
-	fmt.Sscanf(taskIDStr, "%d", &taskID)
+	taskID, err := strconv.ParseInt(taskIDStr, 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	if s.historyStore == nil {
 		http.Error(w, "Database not available", http.StatusInternalServerError)
@@ -1683,8 +1689,11 @@ func (s *Server) handleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTaskComplete(w http.ResponseWriter, r *http.Request) {
 	taskIDStr := chi.URLParam(r, "taskID")
-	var taskID int64
-	fmt.Sscanf(taskIDStr, "%d", &taskID)
+	taskID, err := strconv.ParseInt(taskIDStr, 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	status := r.FormValue("status")
 	if status == "" {
@@ -1699,7 +1708,7 @@ func (s *Server) handleTaskComplete(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.historyStore.CompletePendingTask(taskID, status); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(fmt.Sprintf(`<span class="text-red-600">Error: %s</span>`, template.HTMLEscapeString(err.Error()))))
+		fmt.Fprintf(w, `<span class="text-red-600">Error: %s</span>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
 
@@ -1709,8 +1718,11 @@ func (s *Server) handleTaskComplete(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTaskSkip(w http.ResponseWriter, r *http.Request) {
 	taskIDStr := chi.URLParam(r, "taskID")
-	var taskID int64
-	fmt.Sscanf(taskIDStr, "%d", &taskID)
+	taskID, err := strconv.ParseInt(taskIDStr, 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	if s.historyStore == nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -1720,7 +1732,7 @@ func (s *Server) handleTaskSkip(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.historyStore.CompletePendingTask(taskID, "skipped"); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(fmt.Sprintf(`<span class="text-red-600">Error: %s</span>`, template.HTMLEscapeString(err.Error()))))
+		fmt.Fprintf(w, `<span class="text-red-600">Error: %s</span>`, template.HTMLEscapeString(err.Error()))
 		return
 	}
 
@@ -1730,8 +1742,11 @@ func (s *Server) handleTaskSkip(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTaskHelper(w http.ResponseWriter, r *http.Request) {
 	taskIDStr := chi.URLParam(r, "taskID")
-	var taskID int64
-	fmt.Sscanf(taskIDStr, "%d", &taskID)
+	taskID, err := strconv.ParseInt(taskIDStr, 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	if s.historyStore == nil {
 		http.Error(w, "Database not available", http.StatusInternalServerError)
@@ -1745,7 +1760,9 @@ func (s *Server) handleTaskHelper(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Mark task as opened (sets opened_at timestamp if not already set)
-	s.historyStore.MarkTaskOpened(taskID)
+	if err := s.historyStore.MarkTaskOpened(taskID); err != nil {
+		log.Printf("Warning: failed to mark task %d opened: %v", taskID, err)
+	}
 
 	// Re-fetch task to get updated opened_at
 	task, _ = s.historyStore.GetPendingTaskByID(taskID)
@@ -1753,7 +1770,9 @@ func (s *Server) handleTaskHelper(w http.ResponseWriter, r *http.Request) {
 	// Parse profile data from BrowserState (JSON)
 	profileData := make(map[string]string)
 	if task.BrowserState != "" {
-		json.Unmarshal([]byte(task.BrowserState), &profileData)
+		if err := json.Unmarshal([]byte(task.BrowserState), &profileData); err != nil {
+			log.Printf("Warning: task %d has unreadable profile data: %v", taskID, err)
+		}
 	}
 
 	// Create ordered profile fields for display
@@ -1869,23 +1888,23 @@ func (s *Server) handleAPIInboxScan(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := monitor.Connect(ctx); err != nil {
-		w.Write([]byte(fmt.Sprintf(`
+		fmt.Fprintf(w, `
 			<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
 				<strong>Failed to connect to inbox:</strong> %s
 			</div>
-		`, template.HTMLEscapeString(err.Error()))))
+		`, template.HTMLEscapeString(err.Error()))
 		return
 	}
-	defer monitor.Disconnect()
+	defer func() { _ = monitor.Disconnect() }()
 
 	// Fetch emails from last 7 days - check both INBOX and archive folder
 	emails, err := monitor.FetchBrokerEmails(ctx, 7)
 	if err != nil {
-		w.Write([]byte(fmt.Sprintf(`
+		fmt.Fprintf(w, `
 			<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
 				<strong>Failed to fetch emails:</strong> %s
 			</div>
-		`, template.HTMLEscapeString(err.Error()))))
+		`, template.HTMLEscapeString(err.Error()))
 		return
 	}
 
@@ -1946,7 +1965,7 @@ func (s *Server) handleAPIInboxScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return summary HTML
-	w.Write([]byte(fmt.Sprintf(`
+	fmt.Fprintf(w, `
 		<div class="bg-green-100 border border-green-400 text-green-800 px-4 py-3 rounded">
 			<strong>Scan complete!</strong> Found %d broker emails.
 			<div class="mt-2 text-sm grid grid-cols-2 gap-2">
@@ -1961,7 +1980,7 @@ func (s *Server) handleAPIInboxScan(w http.ResponseWriter, r *http.Request) {
 				<a href="/pipeline" class="underline" onclick="window.location.reload()">Refresh page</a>
 			</p>
 		</div>
-	`, len(emails), success, formRequired, confirmRequired, rejected, unknown)))
+	`, len(emails), success, formRequired, confirmRequired, rejected, unknown)
 }
 
 // handleAPIInboxRescan rescans all emails and reclassifies them with the improved classifier
@@ -1981,11 +2000,11 @@ func (s *Server) handleAPIInboxRescan(w http.ResponseWriter, r *http.Request) {
 	clearFirst := r.URL.Query().Get("clear") == "true"
 	if clearFirst && s.historyStore != nil {
 		if err := s.historyStore.ClearBrokerResponses(); err != nil {
-			w.Write([]byte(fmt.Sprintf(`
+			fmt.Fprintf(w, `
 				<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
 					<strong>Failed to clear responses:</strong> %s
 				</div>
-			`, template.HTMLEscapeString(err.Error()))))
+			`, template.HTMLEscapeString(err.Error()))
 			return
 		}
 	}
@@ -1998,23 +2017,23 @@ func (s *Server) handleAPIInboxRescan(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := monitor.Connect(ctx); err != nil {
-		w.Write([]byte(fmt.Sprintf(`
+		fmt.Fprintf(w, `
 			<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
 				<strong>Failed to connect to inbox:</strong> %s
 			</div>
-		`, template.HTMLEscapeString(err.Error()))))
+		`, template.HTMLEscapeString(err.Error()))
 		return
 	}
-	defer monitor.Disconnect()
+	defer func() { _ = monitor.Disconnect() }()
 
 	// Fetch emails from last 30 days for full rescan - check both INBOX and archive folder
 	emails, err := monitor.FetchBrokerEmails(ctx, 30)
 	if err != nil {
-		w.Write([]byte(fmt.Sprintf(`
+		fmt.Fprintf(w, `
 			<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
 				<strong>Failed to fetch emails:</strong> %s
 			</div>
-		`, template.HTMLEscapeString(err.Error()))))
+		`, template.HTMLEscapeString(err.Error()))
 		return
 	}
 
@@ -2074,7 +2093,7 @@ func (s *Server) handleAPIInboxRescan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return summary HTML
-	w.Write([]byte(fmt.Sprintf(`
+	fmt.Fprintf(w, `
 		<div class="bg-green-100 border border-green-400 text-green-800 px-4 py-3 rounded">
 			<strong>Rescan complete!</strong> Processed %d broker emails.
 			<div class="mt-2 text-sm grid grid-cols-2 gap-2">
@@ -2094,7 +2113,7 @@ func (s *Server) handleAPIInboxRescan(w http.ResponseWriter, r *http.Request) {
 				<a href="/pipeline" class="underline" onclick="window.location.reload()">Refresh page</a>
 			</p>
 		</div>
-	`, len(emails), updated, inserted, success, formRequired, confirmRequired, pending, rejected, unknown)))
+	`, len(emails), updated, inserted, success, formRequired, confirmRequired, pending, rejected, unknown)
 }
 
 // handleAPIReclassify reclassifies all existing database records using subject-only patterns
@@ -2111,11 +2130,11 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 	// Get all broker responses
 	responses, err := s.historyStore.GetAllBrokerResponses()
 	if err != nil {
-		w.Write([]byte(fmt.Sprintf(`
+		fmt.Fprintf(w, `
 			<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
 				<strong>Failed to get responses:</strong> %s
 			</div>
-		`, template.HTMLEscapeString(err.Error()))))
+		`, template.HTMLEscapeString(err.Error()))
 		return
 	}
 
@@ -2149,7 +2168,7 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 		if err := monitor.Connect(ctx); err != nil {
 			log.Printf("Warning: failed to connect to IMAP for body fetch: %v", err)
 		} else {
-			defer monitor.Disconnect()
+			defer func() { _ = monitor.Disconnect() }()
 
 			// Fetch emails from both INBOX and archive folder
 			var allEmails []inbox.Email
@@ -2282,7 +2301,7 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return summary HTML
-	w.Write([]byte(fmt.Sprintf(`
+	fmt.Fprintf(w, `
 		<div class="bg-green-100 border border-green-400 text-green-800 px-4 py-3 rounded">
 			<strong>Reclassification complete!</strong> Processed %d records.
 			<div class="mt-2 text-sm grid grid-cols-2 gap-2">
@@ -2302,7 +2321,7 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 				<a href="/pipeline" class="underline" onclick="window.location.reload()">Refresh page</a>
 			</p>
 		</div>
-	`, len(responses), updated, unchanged, pending, rejected, success, formRequired, confirmRequired, unknown)))
+	`, len(responses), updated, unchanged, pending, rejected, success, formRequired, confirmRequired, unknown)
 }
 
 // handleAPIJobActive returns the currently running job (if any)
@@ -2311,11 +2330,11 @@ func (s *Server) handleAPIJobActive(w http.ResponseWriter, r *http.Request) {
 
 	job := s.jobManager.GetActive()
 	if job == nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"job": nil})
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"job": nil})
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{"job": job.ToJSON()})
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"job": job.ToJSON()})
 }
 
 // handleAPIJobStatus returns the status of a specific job
@@ -2327,11 +2346,11 @@ func (s *Server) handleAPIJobStatus(w http.ResponseWriter, r *http.Request) {
 
 	if job == nil {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "job not found"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "job not found"})
 		return
 	}
 
-	json.NewEncoder(w).Encode(job.ToJSON())
+	_ = json.NewEncoder(w).Encode(job.ToJSON())
 }
 
 // handleAPIJobCancel cancels a running job
@@ -2343,12 +2362,12 @@ func (s *Server) handleAPIJobCancel(w http.ResponseWriter, r *http.Request) {
 
 	if job == nil {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "job not found"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "job not found"})
 		return
 	}
 
 	job.Cancel()
-	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
 }
 
 // removeLegacyJobFile deletes pending_job.json left by older versions, which

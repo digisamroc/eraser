@@ -162,7 +162,7 @@ func Load(path string) (*Config, error) {
 		fmt.Fprintf(os.Stderr, "WARNING: %v\n", err)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: the config path is the user's own --config flag
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}

@@ -493,15 +493,6 @@ func stripHTML(html string) string {
 	return strings.TrimSpace(html)
 }
 
-// ClassifyBatch classifies multiple emails
-func ClassifyBatch(emails []Email) []ClassifiedResponse {
-	results := make([]ClassifiedResponse, len(emails))
-	for i, email := range emails {
-		results[i] = ClassifyResponse(&email)
-	}
-	return results
-}
-
 // ClassifyBySubjectOnly classifies based on subject line only (for reclassifying database records)
 // Returns the response type, confidence, and whether it needs review
 func ClassifyBySubjectOnly(subject string) (ResponseType, float64, bool) {
@@ -567,7 +558,7 @@ func ClassifyBySubjectOnly(subject string) (ResponseType, float64, bool) {
 
 	// Calculate confidence (lower for subject-only)
 	var confidence float64
-	needsReview := true
+	var needsReview bool
 
 	if maxScore >= 3 {
 		confidence = 0.7 // Strong subject match
@@ -582,28 +573,6 @@ func ClassifyBySubjectOnly(subject string) (ResponseType, float64, bool) {
 	}
 
 	return bestType, confidence, needsReview
-}
-
-// FilterByType filters classified responses by type
-func FilterByType(responses []ClassifiedResponse, responseType ResponseType) []ClassifiedResponse {
-	var filtered []ClassifiedResponse
-	for _, r := range responses {
-		if r.Type == responseType {
-			filtered = append(filtered, r)
-		}
-	}
-	return filtered
-}
-
-// GetActionableResponses returns responses that need action
-func GetActionableResponses(responses []ClassifiedResponse) []ClassifiedResponse {
-	var actionable []ClassifiedResponse
-	for _, r := range responses {
-		if r.Type == ResponseFormRequired || r.Type == ResponseConfirmationRequired {
-			actionable = append(actionable, r)
-		}
-	}
-	return actionable
 }
 
 // Summary provides a summary of classified responses
@@ -687,9 +656,4 @@ func isBounceEmail(email *Email, subject, content string) bool {
 	// - It's from a mail system sender AND has bounce patterns, OR
 	// - It has strong bounce patterns (score >= 3)
 	return (isBounceSource && bounceScore > 0) || bounceScore >= 3
-}
-
-// GetBouncedResponses returns responses that are bounced emails
-func GetBouncedResponses(responses []ClassifiedResponse) []ClassifiedResponse {
-	return FilterByType(responses, ResponseBounced)
 }

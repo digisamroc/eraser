@@ -216,8 +216,11 @@ Status: split into two PRs.
   - Saving inbox settings used to wipe folder/archive settings and leave the
     IMAP server and port unset until restart. Fixed.
 - **5B (behavior): done.** Items 5, 6, 7 and 8. Item 4 (local access token)
-  is deferred: the Host check and cross-origin protection cover the remote
-  attacks; it's only needed against other local users or processes.
+  is declined (2026-11-19): the Host check and cross-origin protection cover
+  the remote attacks, and a token wouldn't stop programs running as the
+  user, which can read the config and database anyway. It would only help
+  against other OS users on a shared machine; SECURITY.md says not to run
+  `eraser serve` on one instead.
   - Item 5: job persistence and auto-resume are removed rather than reworked.
     History plus the resend window make them redundant, since "Send all"
     continues where it left off. A leftover `~/.eraser/pending_job.json` is
@@ -621,6 +624,9 @@ Status: done. The CSP is now `script-src 'self'` (styles still allow
 - **Web UI:** keep it and harden it (all of Phase 5).
 - **Registry scope:** California CPPA registry only.
 - **Upstream PRs:** still open. Decide in Phase 8.
+- **Web UI access token (Phase 5, item 4):** declined (2026-11-19). It only
+  protects against other OS users on the same machine; SECURITY.md's
+  "don't run `serve` on a shared machine" warning covers that case.
 
 ## Order
 

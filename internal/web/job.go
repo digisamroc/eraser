@@ -2,9 +2,6 @@ package web
 
 import (
 	"context"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -57,11 +54,14 @@ func (j *Job) Update(sent, failed int, currentBroker string) {
 	}
 }
 
-// Complete marks the job as completed
+// Complete marks a running job as completed. A cancelled job stays cancelled.
 func (j *Job) Complete() {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
+	if j.Status != JobStatusRunning {
+		return
+	}
 	j.Status = JobStatusCompleted
 	j.CompletedAt = time.Now()
 	j.Progress = 100
@@ -107,6 +107,20 @@ func (j *Job) Cancel() {
 			j.cancelFunc()
 		}
 	}
+}
+
+// SetDailyLimit records the cap and how many sends it already counts.
+func (j *Job) SetDailyLimit(limit, daySent int) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.DailyLimit, j.DaySent = limit, daySent
+}
+
+// IsRunning reports whether the job is still running.
+func (j *Job) IsRunning() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.Status == JobStatusRunning
 }
 
 // IsCancelled returns true if the job was cancelled
@@ -193,7 +207,7 @@ func (jm *JobManager) GetActive() *Job {
 	defer jm.mu.RUnlock()
 
 	for _, job := range jm.jobs {
-		if job.Status == JobStatusRunning {
+		if job.IsRunning() {
 			return job
 		}
 	}
@@ -207,78 +221,14 @@ func (jm *JobManager) Cleanup(maxAge time.Duration) {
 
 	cutoff := time.Now().Add(-maxAge)
 	for id, job := range jm.jobs {
-		if job.Status != JobStatusRunning && job.CompletedAt.Before(cutoff) {
+		if job.finishedBefore(cutoff) {
 			delete(jm.jobs, id)
 		}
 	}
 }
 
-// PersistentJobState represents a job that can be saved/loaded from disk
-type PersistentJobState struct {
-	ID               string    `json:"id"`
-	Status           JobStatus `json:"status"`
-	Sent             int       `json:"sent"`
-	Failed           int       `json:"failed"`
-	Total            int       `json:"total"`
-	StartedAt        time.Time `json:"started_at"`
-	RemainingBrokers []string  `json:"remaining_brokers"` // Broker IDs still to process
-	Search           string    `json:"search"`            // Original filter params
-	Category         string    `json:"category"`
-	Region           string    `json:"region"`
-	StatusFilter     string    `json:"status_filter"`
-}
-
-// JobPersistence handles saving/loading job state
-type JobPersistence struct {
-	dataDir string
-}
-
-// NewJobPersistence creates a new job persistence handler
-func NewJobPersistence(dataDir string) *JobPersistence {
-	return &JobPersistence{dataDir: dataDir}
-}
-
-func (jp *JobPersistence) filePath() string {
-	return filepath.Join(jp.dataDir, "pending_job.json")
-}
-
-// Save saves the job state to disk
-func (jp *JobPersistence) Save(state *PersistentJobState) error {
-	if err := os.MkdirAll(jp.dataDir, 0700); err != nil {
-		return err
-	}
-
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(jp.filePath(), data, 0600)
-}
-
-// Load loads a pending job state from disk, returns nil if none exists
-func (jp *JobPersistence) Load() (*PersistentJobState, error) {
-	data, err := os.ReadFile(jp.filePath())
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	var state PersistentJobState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, err
-	}
-
-	return &state, nil
-}
-
-// Clear removes the saved job state
-func (jp *JobPersistence) Clear() error {
-	err := os.Remove(jp.filePath())
-	if os.IsNotExist(err) {
-		return nil
-	}
-	return err
+func (j *Job) finishedBefore(t time.Time) bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.Status != JobStatusRunning && j.CompletedAt.Before(t)
 }

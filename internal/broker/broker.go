@@ -205,10 +205,15 @@ func toSet(items []string) map[string]bool {
 // Filter returns the brokers that should receive an emailed request. Global
 // brokers are included for any region; form-only brokers are never included.
 func (db *BrokerDatabase) Filter(regions []string, excluded []string) []Broker {
+	return FilterList(db.Brokers, regions, excluded)
+}
+
+// FilterList applies Filter's rules to any list of brokers.
+func FilterList(brokers []Broker, regions []string, excluded []string) []Broker {
 	regionSet, excludedSet := toSet(regions), toSet(excluded)
 
 	var result []Broker
-	for _, b := range db.Brokers {
+	for _, b := range brokers {
 		if !b.EmailAccepted() {
 			continue
 		}

@@ -3,9 +3,11 @@
 package sendplan
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/eraser-privacy/eraser/internal/broker"
+	"github.com/eraser-privacy/eraser/internal/config"
 )
 
 // Window is the period the daily cap covers. Gmail's sending limit is a
@@ -27,6 +29,36 @@ type Plan struct {
 	SkippedRecent  []broker.Broker // sent successfully within ResendAfterDays
 	Deferred       int             // eligible but held back by the daily cap or Limit
 	RemainingToday int             // daily cap headroom before this run
+	SentInWindow   int             // successful sends in the current 24h window
+}
+
+// History is the send history a plan is built from.
+type History interface {
+	LastSuccessfulSends() (map[string]time.Time, error)
+	CountSentSince(t time.Time) (int, error)
+}
+
+// ForConfig is the single planning entry point for the CLI and web UI: it
+// drops brokers excluded by the config (regions, excluded_brokers, form-only),
+// then applies the resend window and daily cap from history.
+func ForConfig(candidates []broker.Broker, opts config.Options, h History, now time.Time, limit int, forceResend bool) (Plan, error) {
+	lastSent, err := h.LastSuccessfulSends()
+	if err != nil {
+		return Plan{}, fmt.Errorf("failed to read send history: %w", err)
+	}
+	sentInWindow, err := h.CountSentSince(WindowStart(now))
+	if err != nil {
+		return Plan{}, fmt.Errorf("failed to read send history: %w", err)
+	}
+	p := Build(broker.FilterList(candidates, opts.Regions, opts.ExcludedBrokers), lastSent, sentInWindow, Options{
+		Now:             now,
+		ResendAfterDays: opts.EffectiveResendAfterDays(),
+		ForceResend:     forceResend,
+		DailyLimit:      opts.EffectiveDailyLimit(),
+		Limit:           limit,
+	})
+	p.SentInWindow = sentInWindow
+	return p, nil
 }
 
 // WindowStart returns the start of the daily-cap window ending at now.

@@ -218,6 +218,51 @@
             {{end}}
         </div>
 
+        <!-- What Gets Sent (options.disclose) -->
+        <div class="card p-6">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: var(--accent-muted);">
+                    <svg class="w-5 h-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                    </svg>
+                </div>
+                <h2 class="font-display text-lg font-semibold text-primary">What Gets Sent</h2>
+            </div>
+
+            {{if .Config}}
+            <p class="text-sm text-muted mb-4">
+                Your <strong>name and email</strong> are always included. Nothing else is sent unless you check it here.
+                Brokers can usually verify a request from two data points; add more only if brokers ask.
+            </p>
+            <form method="POST" action="/settings/disclose" class="space-y-3">
+                <label class="flex items-center gap-3">
+                    <input type="checkbox" name="disclose" value="location" {{if .Disclosure.Location}}checked{{end}}>
+                    <span>Location <span class="text-muted text-sm">(city, state, ZIP, country)</span></span>
+                </label>
+                <label class="flex items-center gap-3">
+                    <input type="checkbox" name="disclose" value="street_address" {{if .Disclosure.StreetAddress}}checked{{end}}>
+                    <span>Street address <span class="text-muted text-sm">(also sends location)</span></span>
+                </label>
+                <label class="flex items-center gap-3">
+                    <input type="checkbox" name="disclose" value="phone" {{if .Disclosure.Phone}}checked{{end}}>
+                    <span>Phone</span>
+                </label>
+                <label class="flex items-center gap-3">
+                    <input type="checkbox" name="disclose" value="date_of_birth" {{if .Disclosure.DateOfBirth}}checked{{end}}>
+                    <span>Date of birth</span>
+                </label>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </form>
+            {{if .DiscloseMessage}}
+            <div class="mt-4 p-3 rounded-lg {{if .DiscloseSuccess}}bg-green-500/10 text-green-400{{else}}bg-red-500/10 text-red-400{{end}}">
+                {{.DiscloseMessage}}
+            </div>
+            {{end}}
+            {{else}}
+            <p class="text-muted">Complete setup first.</p>
+            {{end}}
+        </div>
+
         <!-- Request Options Section -->
         <div class="card p-6">
             <div class="flex items-center gap-3 mb-6">

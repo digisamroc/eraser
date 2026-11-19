@@ -70,7 +70,7 @@ Eraser uses your Gmail account to send removal requests. You'll need to create a
 
 That's the password you'll use in Eraser's setup wizard. Your regular Gmail password won't work.
 
-**Daily sending limits:** Gmail allows ~500 emails per day. Eraser automatically chunks large sends across multiple days (250/day to stay safe) so you don't hit rate limits.
+**Daily sending limits:** Gmail allows ~500 emails per day. Eraser sends at most 250 per rolling 24 hours (`options.daily_limit`), counting earlier runs and both the CLI and web UI. Run it again later to continue. `eraser send` skips brokers you've sent to in the last 30 days (`options.resend_after_days`), so re-running it doesn't double-send.
 
 ---
 
@@ -95,7 +95,7 @@ go build -o eraser ./cmd/eraser
 # Preview what would be sent (no emails go out)
 ./eraser send --dry-run
 
-# Send removal requests to all brokers
+# Send removal requests (shows a summary and asks you to type "yes")
 ./eraser send
 
 # Check your history
@@ -107,8 +107,11 @@ go build -o eraser ./cmd/eraser
 | Command | What it does |
 |---------|--------------|
 | `eraser init` | Interactive config setup |
-| `eraser send` | Send removal requests |
+| `eraser send` | Send removal requests (asks for confirmation) |
 | `eraser send --dry-run` | Preview without sending |
+| `eraser send --limit 20` | Send to at most 20 brokers this run |
+| `eraser send --yes` | Skip the confirmation (e.g. in scripts) |
+| `eraser send --force-resend` | Include brokers contacted within `resend_after_days` |
 | `eraser list-brokers` | Show all brokers |
 | `eraser status` | View history and stats |
 | `eraser status --limit 50` | Show more history |

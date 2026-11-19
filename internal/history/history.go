@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -311,31 +312,108 @@ type BrokerStatus struct {
 	TotalSent int
 }
 
+// GetAllBrokerStatuses returns each broker's most recent attempt and count.
+// Times are compared in Go: SQLite returns aggregates like MAX(sent_at) as
+// text, and text comparison is wrong across time zones.
 func (s *Store) GetAllBrokerStatuses() (map[string]BrokerStatus, error) {
-	query := `SELECT broker_id, MAX(sent_at) as last_sent,
-		(SELECT status FROM removal_requests r2 WHERE r2.broker_id = r.broker_id ORDER BY sent_at DESC LIMIT 1),
-		COUNT(*) FROM removal_requests r GROUP BY broker_id`
-
-	rows, err := s.db.Query(query)
+	statuses := make(map[string]BrokerStatus)
+	err := s.eachSend(`SELECT broker_id, status, sent_at FROM removal_requests`, func(brokerID string, status Status, at time.Time) {
+		bs := statuses[brokerID]
+		bs.BrokerID = brokerID
+		bs.TotalSent++
+		if bs.LastSent.IsZero() || !at.Before(bs.LastSent) {
+			bs.LastSent, bs.Status = at, status
+		}
+		statuses[brokerID] = bs
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to query broker statuses: %w", err)
 	}
-	defer rows.Close()
+	return statuses, nil
+}
 
-	statuses := make(map[string]BrokerStatus)
-	for rows.Next() {
-		var bs BrokerStatus
-		var lastSent sql.NullTime
-		var status string
-
-		if err := rows.Scan(&bs.BrokerID, &lastSent, &status, &bs.TotalSent); err != nil {
-			return nil, fmt.Errorf("failed to scan broker status: %w", err)
+// LastSuccessfulSends maps broker ID to the time of its latest successful send.
+func (s *Store) LastSuccessfulSends() (map[string]time.Time, error) {
+	last := make(map[string]time.Time)
+	err := s.eachSend(`SELECT broker_id, status, sent_at FROM removal_requests WHERE status = 'sent'`, func(brokerID string, _ Status, at time.Time) {
+		if at.After(last[brokerID]) {
+			last[brokerID] = at
 		}
-		bs.LastSent = lastSent.Time
-		bs.Status = Status(status)
-		statuses[bs.BrokerID] = bs
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query sends: %w", err)
 	}
-	return statuses, rows.Err()
+	return last, nil
+}
+
+// CountSentSince counts successful sends at or after t (used for daily caps).
+func (s *Store) CountSentSince(t time.Time) (int, error) {
+	n := 0
+	err := s.eachSend(`SELECT broker_id, status, sent_at FROM removal_requests WHERE status = 'sent'`, func(_ string, _ Status, at time.Time) {
+		if !at.Before(t) {
+			n++
+		}
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to count sends: %w", err)
+	}
+	return n, nil
+}
+
+// eachSend runs a (broker_id, status, sent_at) query and parses sent_at in Go.
+func (s *Store) eachSend(query string, fn func(brokerID string, status Status, at time.Time)) error {
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var brokerID, status string
+		var raw any
+		if err := rows.Scan(&brokerID, &status, &raw); err != nil {
+			return err
+		}
+		at, err := parseDBTime(raw)
+		if err != nil {
+			return fmt.Errorf("broker %s: %w", brokerID, err)
+		}
+		fn(brokerID, Status(status), at)
+	}
+	return rows.Err()
+}
+
+// Layouts the SQLite driver and CURRENT_TIMESTAMP may have stored.
+var dbTimeLayouts = []string{
+	"2006-01-02 15:04:05.999999999 -0700 MST",
+	"2006-01-02 15:04:05.999999999-07:00",
+	time.RFC3339Nano,
+	"2006-01-02 15:04:05", // CURRENT_TIMESTAMP (UTC)
+}
+
+func parseDBTime(v any) (time.Time, error) {
+	var s string
+	switch t := v.(type) {
+	case nil:
+		return time.Time{}, nil
+	case time.Time:
+		return t, nil
+	case string:
+		s = t
+	case []byte:
+		s = string(t)
+	default:
+		return time.Time{}, fmt.Errorf("unexpected time value %T", v)
+	}
+	if i := strings.Index(s, " m="); i >= 0 { // monotonic clock suffix from Time.String
+		s = s[:i]
+	}
+	for _, layout := range dbTimeLayouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognized time %q", s)
 }
 
 // DeleteByStatus deletes all records with the given status

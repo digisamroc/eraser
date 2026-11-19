@@ -24,6 +24,7 @@ import (
 	"github.com/eraser-privacy/eraser/internal/email"
 	"github.com/eraser-privacy/eraser/internal/history"
 	"github.com/eraser-privacy/eraser/internal/inbox"
+	"github.com/eraser-privacy/eraser/internal/sendplan"
 	emaTemplate "github.com/eraser-privacy/eraser/internal/template"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -536,7 +537,13 @@ func (s *Server) handleBrokers(w http.ResponseWriter, r *http.Request) {
 
 	brokers := s.getBrokersWithStatus(search, category, region, status)
 
+	dailyLimit := config.DefaultDailyLimit
+	if s.config != nil {
+		dailyLimit = s.config.Options.EffectiveDailyLimit()
+	}
+
 	data := map[string]interface{}{
+		"DailyLimit": dailyLimit,
 		"Title":      "Data Brokers",
 		"Brokers":    brokers,
 		"Categories": s.getUniqueCategories(),
@@ -873,13 +880,6 @@ func (s *Server) handleAPISendAll(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Daily send limits by provider to avoid rate limiting
-const (
-	DailyLimitSMTP     = 250 // Gmail/SMTP: stay well under 500/day
-	DailyLimitSendGrid = 500 // SendGrid free tier
-	DailyLimitResend   = 500 // Resend reasonable daily batch
-)
-
 // processSendJob runs in a background goroutine to send emails
 func (s *Server) processSendJob(job *Job, toSend []BrokerWithStatus, sender email.Sender) {
 	sent := 0
@@ -889,13 +889,19 @@ func (s *Server) processSendJob(job *Job, toSend []BrokerWithStatus, sender emai
 		rateLimitMs = 2000 // Default 2 second delay
 	}
 
-	// Set daily limit based on provider
-	dailyLimit := DailyLimitSMTP // Default for SMTP
-	if s.config.Email.Provider == "sendgrid" {
-		dailyLimit = DailyLimitSendGrid
-	} else if s.config.Email.Provider == "resend" {
-		dailyLimit = DailyLimitResend
+	// The daily cap counts sends recorded in history over the last 24h, so
+	// restarting the server or mixing CLI and web sends can't exceed it.
+	dailyLimit := s.config.Options.EffectiveDailyLimit()
+	sentInWindow := 0
+	if s.historyStore != nil {
+		n, err := s.historyStore.CountSentSince(sendplan.WindowStart(time.Now()))
+		if err != nil {
+			job.StopWithError("history", "Could not read send history: "+err.Error())
+			return
+		}
+		sentInWindow = n
 	}
+	headroom := max(dailyLimit-sentInWindow, 0)
 	job.DailyLimit = dailyLimit
 
 	disclose, err := s.config.Options.Disclosure()
@@ -917,10 +923,10 @@ func (s *Server) processSendJob(job *Job, toSend []BrokerWithStatus, sender emai
 		}
 
 		// Check daily limit
-		if sent >= dailyLimit {
-			job.DaySent = sent
+		if sent >= headroom {
+			job.DaySent = sentInWindow + sent
 			job.Status = JobStatusPaused
-			job.Error = fmt.Sprintf("Daily limit of %d emails reached. Remaining %d brokers will be sent when you restart tomorrow.", dailyLimit, len(remaining))
+			job.Error = fmt.Sprintf("Daily limit of %d emails per 24 hours reached. Remaining %d brokers can be sent later.", dailyLimit, len(remaining))
 			s.saveJobProgress(job, sent, failed, remaining)
 			log.Printf("Job paused: daily limit of %d reached, %d remaining", dailyLimit, len(remaining))
 			return

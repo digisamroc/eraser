@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -18,9 +19,11 @@ import (
 	"github.com/eraser-privacy/eraser/internal/email"
 	"github.com/eraser-privacy/eraser/internal/history"
 	"github.com/eraser-privacy/eraser/internal/inbox"
+	"github.com/eraser-privacy/eraser/internal/sendplan"
 	"github.com/eraser-privacy/eraser/internal/template"
 	"github.com/eraser-privacy/eraser/internal/web"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var (
@@ -92,19 +95,47 @@ func initCmd() *cobra.Command {
 	}
 }
 
+type sendFlags struct {
+	yes         bool
+	limit       int
+	forceResend bool
+}
+
 func sendCmd() *cobra.Command {
+	var flags sendFlags
 	cmd := &cobra.Command{
 		Use:   "send",
 		Short: "Send removal requests to data brokers",
-		Long:  "Send data removal requests to all configured data brokers.",
+		Long: `Send data removal requests to the configured data brokers.
+
+Brokers you successfully sent to within options.resend_after_days (default 30)
+are skipped, and at most options.daily_limit (default 250) requests are sent
+per rolling 24 hours, counting earlier runs. Asks for confirmation first.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSend()
+			return runSend(flags)
 		},
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview emails without sending")
+	cmd.Flags().BoolVar(&flags.yes, "yes", false, "Send without asking for confirmation")
+	cmd.Flags().IntVar(&flags.limit, "limit", 0, "Send to at most this many brokers in this run")
+	cmd.Flags().BoolVar(&flags.forceResend, "force-resend", false, "Also send to brokers contacted within resend_after_days")
 
 	return cmd
+}
+
+// confirmSend asks the user to type "yes". Without a terminal there is no one
+// to ask, so it refuses rather than sending unattended.
+func confirmSend(in io.Reader, out io.Writer, interactive bool, count int, fields []string) error {
+	if !interactive {
+		return fmt.Errorf("refusing to send without confirmation: stdin is not a terminal (pass --yes to send anyway)")
+	}
+	_, _ = fmt.Fprintf(out, "Send removal requests to %d brokers, disclosing %s? Type 'yes' to continue: ", count, strings.Join(fields, ", "))
+	answer, _ := bufio.NewReader(in).ReadString('\n')
+	if strings.TrimSpace(strings.ToLower(answer)) != "yes" {
+		return fmt.Errorf("cancelled; nothing was sent")
+	}
+	return nil
 }
 
 func listBrokersCmd() *cobra.Command {
@@ -209,7 +240,7 @@ func runInit() error {
 	cfg.Email.SMTP.Port = 465
 	cfg.Email.SMTP.UseTLS = true
 	cfg.Email.SMTP.Username = prompt(reader, "  Gmail address: ")
-	cfg.Email.SMTP.Password = prompt(reader, "  App password (16-character code): ")
+	cfg.Email.SMTP.Password = promptSecret(reader, "  App password (16-character code, hidden): ")
 
 	fmt.Println()
 	fmt.Println("⚙️  Options")
@@ -239,7 +270,7 @@ func runInit() error {
 	return nil
 }
 
-func runSend() error {
+func runSend(flags sendFlags) error {
 	cfg, err := config.Load(resolveConfigPath())
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -247,6 +278,9 @@ func runSend() error {
 
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("invalid config: %w", err)
+	}
+	if flags.limit < 0 {
+		return fmt.Errorf("--limit must not be negative")
 	}
 
 	// Override dry-run from command line
@@ -259,26 +293,10 @@ func runSend() error {
 		return fmt.Errorf("failed to load brokers: %w", err)
 	}
 
-	// Filter brokers
-	brokers := brokerDB.Filter(cfg.Options.Regions, cfg.Options.ExcludedBrokers)
-	if len(brokers) == 0 {
-		fmt.Println("No brokers to process.")
-		return nil
-	}
-
 	// Initialize template engine
 	tmplEngine, err := template.NewEngine()
 	if err != nil {
 		return fmt.Errorf("failed to initialize templates: %w", err)
-	}
-
-	// Initialize email sender (unless dry-run)
-	var sender email.Sender
-	if !cfg.Options.DryRun {
-		sender, err = email.NewSender(cfg.Email)
-		if err != nil {
-			return fmt.Errorf("failed to initialize email sender: %w", err)
-		}
 	}
 
 	// Initialize history store
@@ -286,9 +304,27 @@ func runSend() error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize history: %w", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
-	// Process brokers
+	// Plan the run: skip recent sends, apply the daily cap and --limit.
+	now := time.Now()
+	lastSent, err := store.LastSuccessfulSends()
+	if err != nil {
+		return fmt.Errorf("failed to read send history: %w", err)
+	}
+	sentInWindow, err := store.CountSentSince(sendplan.WindowStart(now))
+	if err != nil {
+		return fmt.Errorf("failed to read send history: %w", err)
+	}
+	plan := sendplan.Build(brokerDB.Filter(cfg.Options.Regions, cfg.Options.ExcludedBrokers), lastSent, sentInWindow, sendplan.Options{
+		Now:             now,
+		ResendAfterDays: cfg.Options.EffectiveResendAfterDays(),
+		ForceResend:     flags.forceResend,
+		DailyLimit:      cfg.Options.EffectiveDailyLimit(),
+		Limit:           flags.limit,
+	})
+	brokers := plan.Send
+
 	if cfg.Options.DryRun {
 		fmt.Println("🔍 DRY RUN MODE - No emails will be sent")
 		fmt.Println()
@@ -302,7 +338,41 @@ func runSend() error {
 	if withheld := disclose.Withheld(cfg.Profile); len(withheld) > 0 {
 		fmt.Printf("   Withheld: %s (add to options.disclose to send; some brokers add more via their own disclose list)\n", strings.Join(withheld, ", "))
 	}
+	if n := len(plan.SkippedRecent); n > 0 {
+		fmt.Printf("⏭️  Skipping %d brokers sent to in the last %d days (--force-resend to include)\n", n, cfg.Options.EffectiveResendAfterDays())
+	}
+	if plan.Deferred > 0 {
+		reason := fmt.Sprintf("daily limit %d, %d already sent in the last 24h", cfg.Options.EffectiveDailyLimit(), sentInWindow)
+		if flags.limit > 0 && flags.limit < plan.RemainingToday {
+			reason = fmt.Sprintf("--limit %d", flags.limit)
+		}
+		fmt.Printf("⏸️  Holding back %d brokers (%s). Run again later.\n", plan.Deferred, reason)
+	}
 	fmt.Println()
+
+	if len(brokers) == 0 {
+		fmt.Println("No brokers to process.")
+		return nil
+	}
+
+	// Initialize email sender and confirm (unless dry-run)
+	var sender email.Sender
+	if !cfg.Options.DryRun {
+		sender, err = email.NewSender(cfg.Email)
+		if err != nil {
+			return fmt.Errorf("failed to initialize email sender: %w", err)
+		}
+		if !flags.yes {
+			if err := confirmSend(os.Stdin, os.Stdout, term.IsTerminal(int(os.Stdin.Fd())), len(brokers), disclose.Fields()); err != nil {
+				return err
+			}
+			fmt.Println()
+		}
+	}
+
+	// Ctrl-C stops between brokers instead of killing a send mid-conversation.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	fmt.Printf("📤 Processing %d brokers...\n", len(brokers))
 	fmt.Println()
@@ -311,6 +381,10 @@ func runSend() error {
 	failCount := 0
 
 	for i, b := range brokers {
+		if ctx.Err() != nil {
+			fmt.Println("\n⛔ Interrupted; stopping.")
+			break
+		}
 		fmt.Printf("[%d/%d] %s (%s)\n", i+1, len(brokers), b.Name, b.Email)
 
 		// Render email
@@ -338,8 +412,9 @@ func runSend() error {
 				Body:     emailMsg.Body,
 			}
 
-			ctx := context.WithValue(context.Background(), "sequence", i)
-			result := sender.Send(ctx, msg)
+			sendCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+			result := sender.Send(sendCtx, msg)
+			cancel()
 
 			// Record in history
 			record := &history.Record{
@@ -362,13 +437,18 @@ func runSend() error {
 				failCount++
 			}
 
+			// Without a history record this send would be repeated next run
+			// and wouldn't count toward the daily limit, so stop.
 			if err := store.Add(record); err != nil {
-				fmt.Printf("  ⚠️  Failed to record history: %v\n", err)
+				return fmt.Errorf("failed to record history for %s; stopping to avoid duplicate sends: %w", b.ID, err)
 			}
 
 			// Rate limiting
 			if i < len(brokers)-1 {
-				time.Sleep(time.Duration(cfg.Options.RateLimitMs) * time.Millisecond)
+				select {
+				case <-ctx.Done():
+				case <-time.After(time.Duration(cfg.Options.RateLimitMs) * time.Millisecond):
+				}
 			}
 		}
 	}
@@ -579,6 +659,22 @@ func prompt(reader *bufio.Reader, message string) string {
 		return ""
 	}
 	return strings.TrimSpace(input)
+}
+
+// promptSecret reads without echoing when stdin is a terminal, so the value
+// doesn't appear on screen or in terminal scrollback.
+func promptSecret(reader *bufio.Reader, message string) string {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		return prompt(reader, message)
+	}
+	fmt.Print(message)
+	input, err := term.ReadPassword(fd)
+	fmt.Println()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(input))
 }
 
 func monitorCmd() *cobra.Command {

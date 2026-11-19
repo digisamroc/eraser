@@ -22,7 +22,7 @@
     </div>
 
     <!-- Daily limit info banner -->
-    {{if gt .Filtered 250}}
+    {{if gt .Filtered .DailyLimit}}
     <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
         <div class="flex items-start gap-3">
             <svg class="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -31,8 +31,8 @@
             <div>
                 <p class="text-blue-800 text-sm">
                     <strong>Sending {{.Filtered}} emails will take multiple days.</strong>
-                    To avoid email provider rate limits, Eraser sends up to 250 emails per day.
-                    Remaining emails will automatically continue when you restart the app the next day.
+                    To avoid email provider rate limits, Eraser sends up to {{.DailyLimit}} emails per 24 hours.
+                    Remaining brokers can be sent once the 24-hour limit has room again.
                 </p>
             </div>
         </div>
@@ -467,8 +467,8 @@ function showCompletionMessage(job) {
                     </svg>
                     <div>
                         <h3 class="font-semibold text-blue-800">Daily Limit Reached</h3>
-                        <p class="text-blue-700 text-sm mt-1">Sent ${job.sent} emails today. Remaining emails will continue tomorrow.</p>
-                        <p class="text-sm text-gray-600 mt-2">${job.total - job.sent - job.failed} brokers will be sent automatically when you restart the app tomorrow.</p>
+                        <p class="text-blue-700 text-sm mt-1">Sent ${job.sent} emails in this run; the 24-hour limit has been reached.</p>
+                        <p class="text-sm text-gray-600 mt-2">${job.total - job.sent - job.failed} brokers remaining; send them once the 24-hour limit has room again.</p>
                     </div>
                 </div>
             </div>

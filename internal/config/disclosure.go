@@ -82,20 +82,25 @@ func (d Disclosure) Apply(p Profile) Profile {
 
 // Fields lists what is disclosed, for display.
 func (d Disclosure) Fields() []string {
-	fields := []string{"name", "email"}
+	return append([]string{"name", "email"}, d.Values()...)
+}
+
+// Values returns the options.disclose list for d, in a fixed order.
+func (d Disclosure) Values() []string {
+	var values []string
 	if d.Location {
-		fields = append(fields, DiscloseLocation)
+		values = append(values, DiscloseLocation)
 	}
 	if d.StreetAddress {
-		fields = append(fields, DiscloseStreetAddress)
+		values = append(values, DiscloseStreetAddress)
 	}
 	if d.Phone {
-		fields = append(fields, DisclosePhone)
+		values = append(values, DisclosePhone)
 	}
 	if d.DateOfBirth {
-		fields = append(fields, DiscloseDateOfBirth)
+		values = append(values, DiscloseDateOfBirth)
 	}
-	return fields
+	return values
 }
 
 // Withheld lists disclose values for profile fields that are filled in but

@@ -306,23 +306,12 @@ func runSend(flags sendFlags) error {
 	}
 	defer func() { _ = store.Close() }()
 
-	// Plan the run: skip recent sends, apply the daily cap and --limit.
-	now := time.Now()
-	lastSent, err := store.LastSuccessfulSends()
+	// Plan the run (same rules as the web UI): config filters, resend
+	// window, daily cap, and --limit.
+	plan, err := sendplan.ForConfig(brokerDB.Brokers, cfg.Options, store, time.Now(), flags.limit, flags.forceResend)
 	if err != nil {
-		return fmt.Errorf("failed to read send history: %w", err)
+		return err
 	}
-	sentInWindow, err := store.CountSentSince(sendplan.WindowStart(now))
-	if err != nil {
-		return fmt.Errorf("failed to read send history: %w", err)
-	}
-	plan := sendplan.Build(brokerDB.Filter(cfg.Options.Regions, cfg.Options.ExcludedBrokers), lastSent, sentInWindow, sendplan.Options{
-		Now:             now,
-		ResendAfterDays: cfg.Options.EffectiveResendAfterDays(),
-		ForceResend:     flags.forceResend,
-		DailyLimit:      cfg.Options.EffectiveDailyLimit(),
-		Limit:           flags.limit,
-	})
 	brokers := plan.Send
 
 	if cfg.Options.DryRun {
@@ -342,7 +331,7 @@ func runSend(flags sendFlags) error {
 		fmt.Printf("⏭️  Skipping %d brokers sent to in the last %d days (--force-resend to include)\n", n, cfg.Options.EffectiveResendAfterDays())
 	}
 	if plan.Deferred > 0 {
-		reason := fmt.Sprintf("daily limit %d, %d already sent in the last 24h", cfg.Options.EffectiveDailyLimit(), sentInWindow)
+		reason := fmt.Sprintf("daily limit %d, %d already sent in the last 24h", cfg.Options.EffectiveDailyLimit(), plan.SentInWindow)
 		if flags.limit > 0 && flags.limit < plan.RemainingToday {
 			reason = fmt.Sprintf("--limit %d", flags.limit)
 		}
@@ -370,6 +359,8 @@ func runSend(flags sendFlags) error {
 		}
 	}
 
+	deliverer := sendplan.Deliverer{Config: cfg, Engine: tmplEngine, Sender: sender, Store: store}
+
 	// Ctrl-C stops between brokers instead of killing a send mid-conversation.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -387,15 +378,13 @@ func runSend(flags sendFlags) error {
 		}
 		fmt.Printf("[%d/%d] %s (%s)\n", i+1, len(brokers), b.Name, b.Email)
 
-		// Render email
-		emailMsg, err := tmplEngine.Render(cfg.Options.Template, cfg.Profile, disclose, b)
-		if err != nil {
-			fmt.Printf("  ❌ Failed to render template: %v\n", err)
-			failCount++
-			continue
-		}
-
 		if cfg.Options.DryRun {
+			emailMsg, err := tmplEngine.Render(cfg.Options.Template, cfg.Profile, disclose, b)
+			if err != nil {
+				fmt.Printf("  ❌ Failed to render template: %v\n", err)
+				failCount++
+				continue
+			}
 			fmt.Printf("  📧 Would send: %s\n", emailMsg.Subject)
 			fmt.Printf("  📍 To: %s\n", b.Email)
 			if len(b.Disclose) > 0 {
@@ -403,44 +392,21 @@ func runSend(flags sendFlags) error {
 			}
 			successCount++
 		} else {
-			// Send email
-			msg := email.Message{
-				To:       b.Email,
-				From:     cfg.Email.From,
-				FromName: cfg.Profile.FullName(),
-				Subject:  emailMsg.Subject,
-				Body:     emailMsg.Body,
-			}
-
 			sendCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-			result := sender.Send(sendCtx, msg)
+			record, err := deliverer.Deliver(sendCtx, disclose, b)
 			cancel()
-
-			// Record in history
-			record := &history.Record{
-				BrokerID:   b.ID,
-				BrokerName: b.Name,
-				Email:      b.Email,
-				Template:   cfg.Options.Template,
-				SentAt:     time.Now(),
+			if err != nil {
+				// Without a history record this send would be repeated next
+				// run and wouldn't count toward the daily limit, so stop.
+				return fmt.Errorf("stopping to avoid duplicate sends: %w", err)
 			}
 
-			if result.Success {
-				record.Status = history.StatusSent
-				record.MessageID = result.MessageID
+			if record.Status == history.StatusSent {
 				fmt.Printf("  ✅ Sent successfully\n")
 				successCount++
 			} else {
-				record.Status = history.StatusFailed
-				record.Error = result.Error.Error()
-				fmt.Printf("  ❌ Failed: %v\n", result.Error)
+				fmt.Printf("  ❌ Failed: %s\n", record.Error)
 				failCount++
-			}
-
-			// Without a history record this send would be repeated next run
-			// and wouldn't count toward the daily limit, so stop.
-			if err := store.Add(record); err != nil {
-				return fmt.Errorf("failed to record history for %s; stopping to avoid duplicate sends: %w", b.ID, err)
 			}
 
 			// Rate limiting

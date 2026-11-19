@@ -68,3 +68,8 @@ options:
   # excluded_brokers:
   #   - spokeo
   #   - whitepages
+
+# Browser automation for `eraser fill` (optional)
+# pipeline:
+#   browser_headless: true   # false shows the browser window
+#   browser_timeout_sec: 30

@@ -155,7 +155,30 @@ Status: split into two PRs.
     unrelated "Delete my account" button on the page; a test now covers that.)
   - Removed unused helpers (GetPageHTML, GetPageTitle, WaitForNavigation,
     EnablePageEvents, FillDropdown, CheckCheckbox, DetectFormFields).
-- **4B:** items 1, 2, 3, 5, 6.
+- **4B: done.** Items 1, 2, 3, 5, 6.
+  - `broker.OwnsURL` is the one rule for `fill` and `confirm`: https, and the
+    host shares an organizational domain with the broker's email or website,
+    or the URL is under the broker's registered opt-out URL. Paths are
+    normalized first, since `.../abc/../other` used to pass the prefix check.
+  - `fill`: the page must pass the check before navigating, after loading
+    (catching HTTP and script redirects), after a CAPTCHA wait, and before
+    submitting. Inbox links must come from authenticated emails, with no
+    override. `--allow-other-domain` applies only to a URL the user typed
+    with `--broker`.
+  - `confirm`: every redirect hop is checked against the broker.
+  - Forms and CAPTCHA helper tasks get only the disclosed profile (global
+    plus the broker's own `disclose` list). The broker's pipeline status
+    changes only when a form was actually submitted.
+  - Screenshots: 0600 files in a 0700 folder; names can't escape it. The
+    `/screenshots/{name}` route the task pages already linked to now exists,
+    serving only names that match the screenshot pattern.
+  - `pipeline.browser_headless` is honored (Load used to force it true);
+    `--headless` overrides it only when given.
+  - verify: real-Chrome tests (redirects, a disallowed start URL, disclosed
+    fields only, screenshot permissions and names), confirm-redirect tests,
+    OwnsURL cases including path traversal, route traversal attempts. With
+    the post-load check removed, the redirect test shows the whole profile
+    being filled on the other site.
 
 1. `fill` gets the same domain check as `confirm`. The form URL host must match
    the broker's registered domain. There is no override when the URL came from
@@ -281,6 +304,9 @@ Web "Send all" now applies the same rules (Phase 5B, item 6).
 5. `add-broker` and `cleanup-bounces --remove` still write to the generated
    `data/brokers.yaml`, so the next regeneration loses their changes. Make
    them write `add` / `exclude` entries to `data/brokers.manual.yaml` instead.
+6. README: note that on Ubuntu 23.10+ Chrome may fail with "No usable
+   sandbox". Fix it by allowing user namespaces (see CI) or with Chrome's
+   AppArmor profile, never with `--no-sandbox`. (Done in Phase 4B.)
 
 ## Phase 8 (optional): Contribute back
 

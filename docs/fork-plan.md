@@ -664,6 +664,22 @@ forms ("not confirmed") count as failure words, so those pages are unknown.
   script or style, error statuses) and a test that a 200 page with no signal
   is unknown; with the old logic mapped onto the new type, 7 of them failed.
 
+## Follow-up: show why a send job stopped (2026-11-19)
+
+Status: done. Found in the final review. When "Send all" stopped because a
+send couldn't be recorded in history, the job was marked `completed` and
+the page said "Complete!": the one case where an email may have gone out
+unrecorded (and could be sent again) was hidden. Only auth errors were
+shown. Stopped jobs now have status `error` (and their context is
+cancelled), and the page shows the job's message as text. The history
+message says the email may have been sent and to check the Sent folder
+before sending again. The `paused` status, which nothing set, and its
+page branch are gone.
+- verify: a test that a job whose history write fails ends as
+  `error`/`history` with that warning after one send, and a real-Chrome
+  test that the page shows the message instead of "Complete!"; both failed
+  before the fix.
+
 ---
 
 ## Decisions (2026-11-18)

@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -244,4 +245,19 @@ func TestUIWorksUnderCSP(t *testing.T) {
 		t.Errorf("sent to %v, want b and c", got)
 	}
 	f.noProblems(t, "/brokers after send-all")
+}
+
+// A send job stopped by an error shows that error, not "Complete!".
+func TestUIShowsSendJobError(t *testing.T) {
+	f := newUIFixture(t)
+	f.visit(t, "/brokers")
+	f.sender.setOnSend(func() { _ = f.store.Close() })
+
+	f.click(t, `[data-action="send-all"]`)
+	f.waitFor(t, "send-all to stop", `document.getElementById('send-all-progress').textContent.includes('Stopped')`)
+	text := eval[string](t, f, `document.getElementById('send-all-progress').textContent`)
+	if strings.Contains(text, "Complete!") || !strings.Contains(text, "may have been sent") {
+		t.Errorf("progress area = %q", text)
+	}
+	f.noProblems(t, "/brokers after a failed send-all")
 }

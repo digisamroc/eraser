@@ -15,8 +15,7 @@ const (
 	JobStatusRunning   JobStatus = "running"
 	JobStatusCompleted JobStatus = "completed"
 	JobStatusCancelled JobStatus = "cancelled"
-	JobStatusPaused    JobStatus = "paused" // Paused due to daily limit
-	JobStatusError     JobStatus = "error"  // Stopped due to auth/config error
+	JobStatusError     JobStatus = "error" // Stopped by an error (auth, history); see Error
 )
 
 // Job represents a background email sending job
@@ -68,13 +67,16 @@ func (j *Job) Complete() {
 	j.CurrentBroker = ""
 }
 
-// StopWithError stops the job due to an error
+// StopWithError stops the job due to an error; the UI shows errorMsg.
 func (j *Job) StopWithError(errorType, errorMsg string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
-	j.Status = JobStatusCompleted
+	j.Status = JobStatusError
 	j.CompletedAt = time.Now()
+	if j.cancelFunc != nil {
+		j.cancelFunc()
+	}
 	j.Error = errorMsg
 	j.ErrorType = errorType
 	j.CurrentBroker = ""

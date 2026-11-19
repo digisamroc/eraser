@@ -263,3 +263,52 @@ func TestNewStoreLeavesOtherDirsAlone(t *testing.T) {
 		t.Errorf("folder permissions changed to %04o", p)
 	}
 }
+
+// A write must wait for a read in progress instead of failing at once with
+// SQLITE_BUSY: a "Send all" job records each send while pages read history,
+// and the CLI and the web UI can use the database at the same time. A failed
+// history write stops the job.
+func TestWriteWaitsForReadInProgress(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.db")
+	reader, err := NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reader.Close() })
+	other, err := NewStore(path) // a second process, e.g. CLI send while serve runs
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = other.Close() })
+
+	rec := func() *Record {
+		return &Record{BrokerID: "a", BrokerName: "A", Email: "p@a.example", Template: "generic", Status: StatusSent, SentAt: time.Now()}
+	}
+	if err := reader.Add(rec()); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, writer := range map[string]*Store{"same store": reader, "another store": other} {
+		t.Run(name, func(t *testing.T) {
+			rows, err := reader.db.Query(`SELECT id FROM removal_requests`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows.Next() // a read in progress holds a shared lock until closed
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+				_ = rows.Close()
+			}()
+			if err := writer.Add(rec()); err != nil {
+				t.Fatalf("write during a read: %v", err)
+			}
+		})
+	}
+}
+
+func TestNewStoreRejectsQuestionMarkInPath(t *testing.T) {
+	// The driver reads connection options after the first "?".
+	if _, err := NewStore(filepath.Join(t.TempDir(), "odd?name.db")); err == nil {
+		t.Fatal("NewStore accepted a path containing '?'")
+	}
+}

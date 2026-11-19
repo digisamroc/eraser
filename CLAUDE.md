@@ -13,7 +13,8 @@ This is a hardened fork; `docs/fork-plan.md` records what changed and why.
 - Go (version and toolchain pinned in `go.mod`)
 - CLI: Cobra. Web UI: chi + html/template + htmx 1.9.10 + prebuilt Tailwind CSS
 - Email: SMTP only (implicit TLS on 465, STARTTLS otherwise; plaintext only to a loopback relay)
-- Storage: SQLite via `modernc.org/sqlite` (`~/.eraser/history.db`)
+- Storage: SQLite via `modernc.org/sqlite` (`~/.eraser/history.db`); every
+  connection has `busy_timeout` 5s, so writes wait for reads instead of failing
 - Inbox: IMAP via `go-imap` v1. Browser automation: chromedp (headless Chrome)
 
 ## Project Structure

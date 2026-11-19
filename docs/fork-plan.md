@@ -616,6 +616,21 @@ Status: done. The CSP is now `script-src 'self'` (styles still allow
   All). Restoring an inline handler or script block, unwiring the actions,
   or re-adding `'unsafe-inline'` each make a test fail.
 
+## Follow-up: SQLite busy timeout (2026-11-19)
+
+Status: done. Found when the real-Chrome UI test failed once in CI with
+`database is locked (SQLITE_BUSY)`. The history database had no busy
+timeout, so a write failed within ~1 ms if any read was in progress, on
+another pooled connection or in another process. A "Send all" job stops
+when it can't record a send, so browsing the UI (or running the CLI)
+during a job could stop it. Every connection now gets
+`_pragma=busy_timeout(5000)`; `NewStore` rejects paths containing `?`,
+where the driver would read options from the path.
+- verify: a write during an open read succeeds, on the same store and on a
+  second store for the same file (both failed before); removing the timeout
+  or the `?` check makes a test fail; the UI test passes 10/10 under
+  `-race`.
+
 ---
 
 ## Decisions (2026-11-18)

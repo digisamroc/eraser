@@ -70,7 +70,7 @@ Eraser uses your Gmail account to send removal requests. You'll need to create a
 
 That's the password you'll use in Eraser's setup wizard. Your regular Gmail password won't work.
 
-**Daily sending limits:** Gmail allows ~500 emails per day. Eraser sends at most 250 per rolling 24 hours (`options.daily_limit`), counting earlier runs and both the CLI and web UI. Run it again later to continue. `eraser send` skips brokers you've sent to in the last 30 days (`options.resend_after_days`), so re-running it doesn't double-send.
+**Daily sending limits:** Gmail allows ~500 emails per day. Eraser sends at most 250 per rolling 24 hours (`options.daily_limit`), counting earlier runs and both the CLI and web UI. Run it again later to continue. Both `eraser send` and the web UI's "Send all" skip brokers you've sent to in the last 30 days (`options.resend_after_days`), so re-running doesn't double-send. An interrupted bulk send is never resumed automatically; click "Send all" (or run `eraser send`) again to continue where it left off.
 
 ---
 

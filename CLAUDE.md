@@ -56,6 +56,11 @@ Three email templates are available:
 - **Generic**: General privacy request referencing multiple laws
 
 ### Flow
+CLI `send` and the web UI share one path in `internal/sendplan`:
+`ForConfig` (regions, exclusions, form-only, resend window, daily cap from
+history) picks brokers, and `Deliverer.Deliver` renders, sends, and records
+each one. Don't add a send path that bypasses them.
+
 1. Load user config from `~/.eraser/config.yaml`
 2. Load brokers from `data/brokers.yaml`
 3. Filter by region and exclusions

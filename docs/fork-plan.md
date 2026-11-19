@@ -150,9 +150,24 @@ Status: split into two PRs.
     those out (or adding nonces) is a follow-up.
   - Saving inbox settings used to wipe folder/archive settings and leave the
     IMAP server and port unset until restart. Fixed.
-- **5B (behavior):** items 5, 6, 7 and 8. Item 4 (local access token) is
-  deferred: the Host check and cross-origin protection cover the remote
+- **5B (behavior): done.** Items 5, 6, 7 and 8. Item 4 (local access token)
+  is deferred: the Host check and cross-origin protection cover the remote
   attacks; it's only needed against other local users or processes.
+  - Item 5: job persistence and auto-resume are removed rather than reworked.
+    History plus the resend window make them redundant, since "Send all"
+    continues where it left off. A leftover `~/.eraser/pending_job.json` is
+    deleted on startup.
+  - Item 6: `sendplan.ForConfig` (filters, resend window, cap) and
+    `sendplan.Deliverer` (render, send, record) are used by the CLI, web
+    "Send all", and web single "Send".
+  - Item 7: the wizard starts from and merges into the existing config.
+    Settings has a "What Gets Sent" section for `options.disclose`. Also
+    fixed: on a first visit the profile step didn't save, because it updated
+    the session by a cookie the request didn't have yet.
+  - Item 8: job fields are only touched under the job lock. `Complete()` no
+    longer overwrites a cancelled job's status.
+    - verify: race tests that catch a reintroduced unlocked read 5 out of 5
+      times.
 
 1. Add a Host header allowlist middleware (`localhost:PORT`, `127.0.0.1:PORT`)
    to block DNS rebinding.
@@ -211,10 +226,7 @@ Status: done.
    change there.)
 4. `config.Save` chmods an existing file to 0600.
 
-Not done here (Phase 5, item 6): web "Send all" doesn't apply the
-resend-after rule yet. Its default "pending" filter only targets never-sent
-brokers, but choosing the "sent" filter can resend. Moving it onto
-`sendplan` fixes that.
+Web "Send all" now applies the same rules (Phase 5B, item 6).
 
 ## Phase 7: Docs and cleanup
 

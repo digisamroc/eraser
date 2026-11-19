@@ -1,11 +1,13 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/eraser-privacy/eraser/internal/config"
@@ -63,8 +65,8 @@ func TestSetupWizardKeepsExistingSettings(t *testing.T) {
 
 	// A GET must not save (any page can trigger one); completing is a POST.
 	rec = do(h, http.MethodGet, "/setup/complete", func(r *http.Request) { r.AddCookie(cookie) })
-	if rec.Code != http.StatusFound || s.config.Profile.FirstName == "Janet" {
-		t.Fatalf("GET /setup/complete: status %d, first name %q; it must redirect without saving", rec.Code, s.config.Profile.FirstName)
+	if rec.Code != http.StatusFound || s.cfg().Profile.FirstName == "Janet" {
+		t.Fatalf("GET /setup/complete: status %d, first name %q; it must redirect without saving", rec.Code, s.cfg().Profile.FirstName)
 	}
 	if _, err := config.Load(s.configPath); err == nil {
 		t.Fatal("GET /setup/complete wrote the config file")
@@ -75,7 +77,7 @@ func TestSetupWizardKeepsExistingSettings(t *testing.T) {
 		t.Fatalf("complete: status %d", rec.Code)
 	}
 
-	got := s.config
+	got := s.cfg()
 	if got.Profile.FirstName != "Janet" {
 		t.Errorf("profile not updated: %+v", got.Profile)
 	}
@@ -106,7 +108,7 @@ func TestSettingsDisclosure(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d", rec.Code)
 	}
-	if got := s.config.Options.Disclose; !reflect.DeepEqual(got, []string{"location", "date_of_birth"}) {
+	if got := s.cfg().Options.Disclose; !reflect.DeepEqual(got, []string{"location", "date_of_birth"}) {
 		t.Fatalf("Disclose = %v", got)
 	}
 	if saved, err := config.Load(s.configPath); err != nil || len(saved.Options.Disclose) != 2 {
@@ -125,7 +127,7 @@ func TestSettingsDisclosure(t *testing.T) {
 
 	// Clearing every box returns to name and email only.
 	postForm(h, "/settings/disclose", url.Values{})
-	if got := s.config.Options.Disclose; len(got) != 0 {
+	if got := s.cfg().Options.Disclose; len(got) != 0 {
 		t.Fatalf("Disclose = %v, want none", got)
 	}
 
@@ -135,7 +137,46 @@ func TestSettingsDisclosure(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "unknown disclose value") {
 		t.Errorf("no error shown for invalid value")
 	}
-	if got := s.config.Options.Disclose; !reflect.DeepEqual(got, []string{"location"}) {
+	if got := s.cfg().Options.Disclose; !reflect.DeepEqual(got, []string{"location"}) {
 		t.Fatalf("invalid post changed Disclose to %v", got)
+	}
+}
+
+// Settings saved at the same time must all stick, in memory and on disk,
+// while other requests read the config (run with -race).
+func TestConcurrentSettingsSavesKeepEachOther(t *testing.T) {
+	s, h := newTestServer(t, existingConfig())
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			postForm(h, "/settings/disclose", url.Values{"disclose": {"date_of_birth"}})
+		}()
+		go func() {
+			defer wg.Done()
+			postForm(h, "/settings/inbox", url.Values{"inbox_email": {fmt.Sprintf("inbox%d@example.com", i)}, "inbox_password": {"pw"}})
+		}()
+		go func() {
+			defer wg.Done()
+			do(h, http.MethodGet, "/settings", nil)
+		}()
+	}
+	wg.Wait()
+
+	saved, err := config.Load(s.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, cfg := range map[string]*config.Config{"memory": s.cfg(), "disk": saved} {
+		if !reflect.DeepEqual(cfg.Options.Disclose, []string{"date_of_birth"}) {
+			t.Errorf("%s: disclose = %v, a concurrent save lost it", name, cfg.Options.Disclose)
+		}
+		if !cfg.Inbox.Enabled || !strings.HasPrefix(cfg.Inbox.Email, "inbox") {
+			t.Errorf("%s: inbox = %+v, a concurrent save lost it", name, cfg.Inbox)
+		}
+	}
+	if s.cfg().Inbox.Email != saved.Inbox.Email {
+		t.Errorf("memory has inbox %q, disk has %q", s.cfg().Inbox.Email, saved.Inbox.Email)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -17,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/eraser-privacy/eraser/internal/broker"
@@ -106,7 +108,10 @@ func (rl *RateLimiter) cleanupLoop() {
 }
 
 type Server struct {
-	config       *config.Config
+	// current is the config in use. A published Config is never modified:
+	// read it with cfg, change it with updateConfig.
+	current      atomic.Pointer[config.Config]
+	configMu     sync.Mutex // held by updateConfig
 	configPath   string
 	brokerDB     *broker.BrokerDatabase
 	historyStore *history.Store
@@ -127,7 +132,6 @@ type Server struct {
 
 func NewServer(port int, cfg *config.Config, configPath string, brokerDB *broker.BrokerDatabase, historyStore *history.Store, tmplEngine *emaTemplate.Engine) (*Server, error) {
 	s := &Server{
-		config:        cfg,
 		configPath:    configPath,
 		brokerDB:      brokerDB,
 		historyStore:  historyStore,
@@ -140,12 +144,39 @@ func NewServer(port int, cfg *config.Config, configPath string, brokerDB *broker
 		screenshotDir: defaultScreenshotDir(),
 	}
 
+	s.current.Store(cfg)
+
 	tmpl, err := s.parseTemplates()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse templates: %w", err)
 	}
 	s.templates = tmpl
 	return s, nil
+}
+
+// cfg returns the current config (nil before setup). Don't modify it; use
+// updateConfig. A handler should read it once and use that snapshot.
+func (s *Server) cfg() *config.Config { return s.current.Load() }
+
+// updateConfig applies change to a copy of the current config (or to a new
+// one with defaults), saves it, and makes it current. Writers are serialized,
+// so concurrent saves can't drop each other's changes. change must replace
+// slices and maps, not modify them: the copy shares them with the old config.
+func (s *Server) updateConfig(change func(*config.Config) error) error {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	updated := config.Config{Options: config.Options{Template: "generic", RateLimitMs: 2000}}
+	if cur := s.cfg(); cur != nil {
+		updated = *cur
+	}
+	if err := change(&updated); err != nil {
+		return err
+	}
+	if err := config.Save(s.configPath, &updated); err != nil {
+		return err
+	}
+	s.current.Store(&updated)
+	return nil
 }
 
 // parseTemplates loads and parses all HTML templates
@@ -463,8 +494,9 @@ func openBrowser(url string) {
 // Handler implementations
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfg()
 	// Check if config exists, redirect to setup if not
-	if s.config == nil || s.config.Profile.FirstName == "" {
+	if cfg == nil || cfg.Profile.FirstName == "" {
 		http.Redirect(w, r, "/setup", http.StatusFound)
 		return
 	}
@@ -473,7 +505,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	progress := percent(stats.Sent, stats.TotalBrokers)
 	data := map[string]interface{}{
 		"Title":         "Dashboard",
-		"Profile":       s.config.Profile,
+		"Profile":       cfg.Profile,
 		"BrokerCount":   len(s.brokerDB.Brokers),
 		"RecentHistory": s.getRecentHistory(10),
 		"Stats":         stats,
@@ -487,6 +519,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBrokers(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfg()
 	search := r.URL.Query().Get("search")
 	category := r.URL.Query().Get("category")
 	region := r.URL.Query().Get("region")
@@ -495,8 +528,8 @@ func (s *Server) handleBrokers(w http.ResponseWriter, r *http.Request) {
 	brokers := s.getBrokersWithStatus(search, category, region, status)
 
 	dailyLimit := config.DefaultDailyLimit
-	if s.config != nil {
-		dailyLimit = s.config.Options.EffectiveDailyLimit()
+	if cfg != nil {
+		dailyLimit = cfg.Options.EffectiveDailyLimit()
 	}
 
 	data := map[string]interface{}{
@@ -557,13 +590,14 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 // renderSettings renders the settings page with the current config plus
 // any extra template data (e.g. a status message).
 func (s *Server) renderSettings(w http.ResponseWriter, extra map[string]interface{}) {
+	cfg := s.cfg()
 	var disclose config.Disclosure
-	if s.config != nil {
-		disclose, _ = s.config.Options.Disclosure() // invalid values render as unchecked
+	if cfg != nil {
+		disclose, _ = cfg.Options.Disclosure() // invalid values render as unchecked
 	}
 	data := map[string]interface{}{
 		"Title":      "Settings",
-		"Config":     s.config,
+		"Config":     cfg,
 		"Disclosure": disclose,
 	}
 	for k, v := range extra {
@@ -581,7 +615,7 @@ func (s *Server) handleSettingsDisclose(w http.ResponseWriter, r *http.Request) 
 		msg("Failed to parse form", false)
 		return
 	}
-	if s.config == nil {
+	if s.cfg() == nil {
 		msg("Complete setup first", false)
 		return
 	}
@@ -591,13 +625,14 @@ func (s *Server) handleSettingsDisclose(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	updated := *s.config
-	updated.Options.Disclose = disclose.Values()
-	if err := config.Save(s.configPath, &updated); err != nil {
+	err = s.updateConfig(func(c *config.Config) error {
+		c.Options.Disclose = disclose.Values()
+		return nil
+	})
+	if err != nil {
 		msg("Failed to save configuration: "+err.Error(), false)
 		return
 	}
-	s.config = &updated
 	msg("Saved. Emails will include: "+strings.Join(disclose.Fields(), ", ")+".", true)
 }
 
@@ -610,36 +645,37 @@ func (s *Server) handleSettingsInbox(w http.ResponseWriter, r *http.Request) {
 	email := strings.TrimSpace(r.FormValue("inbox_email"))
 	password := strings.TrimSpace(r.FormValue("inbox_password"))
 
-	if s.config == nil {
-		s.config = &config.Config{}
-	}
-	inbox := s.config.Inbox
+	errMissing := errors.New("email and password are required")
+	err := s.updateConfig(func(c *config.Config) error {
+		inbox := c.Inbox
+		// The page never shows the saved password, so a blank field means
+		// "keep it", but only for the same account.
+		if password == "" && inbox.Password != "" && strings.EqualFold(email, inbox.Email) {
+			password = inbox.Password
+		}
+		if email == "" || password == "" {
+			return errMissing
+		}
 
-	// The page never shows the saved password, so a blank field means "keep
-	// it", but only for the same account.
-	if password == "" && inbox.Password != "" && strings.EqualFold(email, inbox.Email) {
-		password = inbox.Password
-	}
-	if email == "" || password == "" {
+		// Update only the fields this form owns; keep folder and archive settings.
+		inbox.Enabled = true
+		inbox.Provider = "gmail"
+		inbox.Email = email
+		inbox.Password = password
+		if inbox.Server == "" {
+			inbox.Server, inbox.Port = "imap.gmail.com", 993
+		}
+		if inbox.Folder == "" {
+			inbox.Folder = "INBOX"
+		}
+		c.Inbox = inbox
+		return nil
+	})
+	switch {
+	case errors.Is(err, errMissing):
 		s.renderSettingsWithMessage(w, r, "Email and password are required", false)
 		return
-	}
-
-	// Update only the fields this form owns; keep folder and archive settings.
-	inbox.Enabled = true
-	inbox.Provider = "gmail"
-	inbox.Email = email
-	inbox.Password = password
-	if inbox.Server == "" {
-		inbox.Server, inbox.Port = "imap.gmail.com", 993
-	}
-	if inbox.Folder == "" {
-		inbox.Folder = "INBOX"
-	}
-	s.config.Inbox = inbox
-
-	// Save config
-	if err := config.Save(s.configPath, s.config); err != nil {
+	case err != nil:
 		s.renderSettingsWithMessage(w, r, "Failed to save configuration: "+err.Error(), false)
 		return
 	}
@@ -705,6 +741,7 @@ func (s *Server) handleAPIDeleteFailed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPISendOne(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfg()
 	// Rate limiting - prevent abuse of email sending
 	if !s.rateLimiter.Allow("send") {
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -726,7 +763,7 @@ func (s *Server) handleAPISendOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.config == nil || s.config.Email.Provider == "" {
+	if cfg == nil || cfg.Email.Provider == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`<span class="text-red-600">Email not configured. <a href="/setup" class="underline">Configure now</a></span>`))
 		return
@@ -741,7 +778,7 @@ func (s *Server) handleAPISendOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	d, disclose, err := s.deliverer()
+	d, disclose, err := s.deliverer(cfg)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = fmt.Fprintf(w, `<span class="text-red-600">Error: %s</span>`, template.HTMLEscapeString(err.Error()))
@@ -749,7 +786,7 @@ func (s *Server) handleAPISendOne(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Same rules as "Send all" and the CLI: config filters, resend window, daily cap.
-	plan, err := sendplan.ForConfig([]broker.Broker{*br}, s.config.Options, s.historyStore, time.Now(), 0, false)
+	plan, err := sendplan.ForConfig([]broker.Broker{*br}, cfg.Options, s.historyStore, time.Now(), 0, false)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = fmt.Fprintf(w, `<span class="text-red-600">Error: %s</span>`, template.HTMLEscapeString(err.Error()))
@@ -757,7 +794,7 @@ func (s *Server) handleAPISendOne(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(plan.Send) == 0 {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = fmt.Fprintf(w, `<span class="text-yellow-600">%s</span>`, template.HTMLEscapeString(skipReason(plan, s.config.Options)))
+		_, _ = fmt.Fprintf(w, `<span class="text-yellow-600">%s</span>`, template.HTMLEscapeString(skipReason(plan, cfg.Options)))
 		return
 	}
 
@@ -780,8 +817,8 @@ func (s *Server) handleAPISendOne(w http.ResponseWriter, r *http.Request) {
 
 // newInboxMonitor creates a monitor that can also match replies to sent
 // requests by In-Reply-To.
-func (s *Server) newInboxMonitor() *inbox.Monitor {
-	m := inbox.NewMonitor(s.config.Inbox, s.brokerDB.Brokers)
+func (s *Server) newInboxMonitor(cfg *config.Config) *inbox.Monitor {
+	m := inbox.NewMonitor(cfg.Inbox, s.brokerDB.Brokers)
 	if s.historyStore != nil {
 		if ids, err := s.historyStore.SentMessageIDs(); err == nil {
 			m.SetSentMessageIDs(ids)
@@ -804,20 +841,20 @@ func writeUnverifiedNotice(w http.ResponseWriter, m *inbox.Monitor) {
 	`))
 }
 
-// deliverer builds the shared send path from the current config.
-func (s *Server) deliverer() (sendplan.Deliverer, config.Disclosure, error) {
+// deliverer builds the shared send path from cfg.
+func (s *Server) deliverer(cfg *config.Config) (sendplan.Deliverer, config.Disclosure, error) {
 	if s.historyStore == nil {
 		return sendplan.Deliverer{}, config.Disclosure{}, fmt.Errorf("history database not available")
 	}
-	disclose, err := s.config.Options.Disclosure()
+	disclose, err := cfg.Options.Disclosure()
 	if err != nil {
 		return sendplan.Deliverer{}, config.Disclosure{}, err
 	}
-	sender, err := s.newSender(s.config.Email)
+	sender, err := s.newSender(cfg.Email)
 	if err != nil {
 		return sendplan.Deliverer{}, config.Disclosure{}, err
 	}
-	return sendplan.Deliverer{Config: s.config, Engine: s.tmplEngine, Sender: sender, Store: s.historyStore}, disclose, nil
+	return sendplan.Deliverer{Config: cfg, Engine: s.tmplEngine, Sender: sender, Store: s.historyStore}, disclose, nil
 }
 
 // skipReason explains why a plan has nothing to send.
@@ -833,6 +870,7 @@ func skipReason(plan sendplan.Plan, opts config.Options) string {
 }
 
 func (s *Server) handleAPISendAll(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfg()
 	w.Header().Set("Content-Type", "application/json")
 	writeErr := func(code int, msg string) {
 		w.WriteHeader(code)
@@ -859,7 +897,7 @@ func (s *Server) handleAPISendAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.config == nil || s.config.Email.Provider == "" {
+	if cfg == nil || cfg.Email.Provider == "" {
 		writeErr(http.StatusBadRequest, "Email not configured. Please configure email settings first.")
 		return
 	}
@@ -880,25 +918,25 @@ func (s *Server) handleAPISendAll(w http.ResponseWriter, r *http.Request) {
 		candidates = append(candidates, b.Broker)
 	}
 
-	d, disclose, err := s.deliverer()
+	d, disclose, err := s.deliverer(cfg)
 	if err != nil {
 		writeErr(http.StatusBadRequest, err.Error())
 		return
 	}
 
 	// Same rules as the CLI: config filters, resend window, daily cap.
-	plan, err := sendplan.ForConfig(candidates, s.config.Options, s.historyStore, time.Now(), 0, false)
+	plan, err := sendplan.ForConfig(candidates, cfg.Options, s.historyStore, time.Now(), 0, false)
 	if err != nil {
 		writeErr(http.StatusInternalServerError, err.Error())
 		return
 	}
 	if len(plan.Send) == 0 {
-		writeErr(http.StatusBadRequest, skipReason(plan, s.config.Options))
+		writeErr(http.StatusBadRequest, skipReason(plan, cfg.Options))
 		return
 	}
 
 	job := s.jobManager.Create(len(plan.Send))
-	job.SetDailyLimit(s.config.Options.EffectiveDailyLimit(), plan.SentInWindow)
+	job.SetDailyLimit(cfg.Options.EffectiveDailyLimit(), plan.SentInWindow)
 	go s.processSendJob(job, plan.Send, d, disclose)
 
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -913,7 +951,7 @@ func (s *Server) handleAPISendAll(w http.ResponseWriter, r *http.Request) {
 // daily cap and resend rules; every send goes through the shared Deliverer.
 func (s *Server) processSendJob(job *Job, brokers []broker.Broker, d sendplan.Deliverer, disclose config.Disclosure) {
 	sent, failed := 0, 0
-	rateLimit := time.Duration(s.config.Options.RateLimitMs) * time.Millisecond
+	rateLimit := time.Duration(d.Config.Options.RateLimitMs) * time.Millisecond
 	if rateLimit <= 0 {
 		rateLimit = 2 * time.Second
 	}
@@ -1139,6 +1177,7 @@ func (s *Server) handleSetupWelcome(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetupProfile(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfg()
 	if r.Method == "POST" {
 		profile := config.Profile{
 			FirstName:   strings.TrimSpace(r.FormValue("first_name")),
@@ -1188,8 +1227,8 @@ func (s *Server) handleSetupProfile(w http.ResponseWriter, r *http.Request) {
 			sess.Profile = profile
 			// Start the email step from the saved settings, so a blank
 			// password field keeps the saved password.
-			if sess.Email.Provider == "" && s.config != nil {
-				sess.Email = s.config.Email
+			if sess.Email.Provider == "" && cfg != nil {
+				sess.Email = cfg.Email
 			}
 		})
 		http.Redirect(w, r, "/setup/email", http.StatusFound)
@@ -1200,8 +1239,8 @@ func (s *Server) handleSetupProfile(w http.ResponseWriter, r *http.Request) {
 	var profile config.Profile
 	if session != nil {
 		profile = session.Profile
-	} else if s.config != nil {
-		profile = s.config.Profile // re-running setup: start from saved values
+	} else if cfg != nil {
+		profile = cfg.Profile // re-running setup: start from saved values
 	}
 	data := map[string]interface{}{
 		"Title":   "Setup - Profile",
@@ -1400,18 +1439,14 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Start from the existing config so re-running setup only changes the
-	// profile and email settings it asked about (inbox, exclusions,
-	// disclosure, limits, and so on are kept).
-	cfg := &config.Config{Options: config.Options{Template: "generic", RateLimitMs: 2000}}
-	if s.config != nil {
-		existing := *s.config
-		cfg = &existing
-	}
-	cfg.Profile = session.Profile
-	cfg.Email = session.Email
-
-	if err := config.Save(s.configPath, cfg); err != nil {
+	// Change only the profile and email settings setup asked about (inbox,
+	// exclusions, disclosure, limits, and so on are kept).
+	err := s.updateConfig(func(c *config.Config) error {
+		c.Profile = session.Profile
+		c.Email = session.Email
+		return nil
+	})
+	if err != nil {
 		data := map[string]interface{}{
 			"Title": "Setup - Error",
 			"Error": err.Error(),
@@ -1419,9 +1454,6 @@ func (s *Server) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 		s.render(w, "setup/complete.html", data)
 		return
 	}
-
-	// Update server's config reference
-	s.config = cfg
 
 	// Clear session - credentials are now saved to config file
 	s.clearSession(w, r)
@@ -1571,7 +1603,8 @@ func (s *Server) getPipelineStats() PipelineStats {
 }
 
 func (s *Server) handlePipeline(w http.ResponseWriter, r *http.Request) {
-	if s.config == nil || s.config.Profile.FirstName == "" {
+	cfg := s.cfg()
+	if cfg == nil || cfg.Profile.FirstName == "" {
 		http.Redirect(w, r, "/setup", http.StatusFound)
 		return
 	}
@@ -1595,7 +1628,7 @@ func (s *Server) handlePipeline(w http.ResponseWriter, r *http.Request) {
 		"PipelineStats":   pipelineStats,
 		"RecentResponses": recentResponses,
 		"PendingTasks":    pendingTasks,
-		"InboxConfigured": s.config.Inbox.Enabled,
+		"InboxConfigured": cfg.Inbox.Enabled,
 	}
 
 	s.render(w, "pipeline.html", data)
@@ -1655,7 +1688,7 @@ func (s *Server) handleFormSkip(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
-	if s.config == nil || s.config.Profile.FirstName == "" {
+	if cfg := s.cfg(); cfg == nil || cfg.Profile.FirstName == "" {
 		http.Redirect(w, r, "/setup", http.StatusFound)
 		return
 	}
@@ -1941,8 +1974,9 @@ func (s *Server) handleAPITasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIInboxScan(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfg()
 	// Check if inbox is configured
-	if s.config == nil || !s.config.Inbox.Enabled {
+	if cfg == nil || !cfg.Inbox.Enabled {
 		w.Write([]byte(`
 			<div class="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded">
 				<strong>Inbox monitoring not configured.</strong>
@@ -1953,7 +1987,7 @@ func (s *Server) handleAPIInboxScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create inbox monitor
-	monitor := s.newInboxMonitor()
+	monitor := s.newInboxMonitor(cfg)
 	writeUnverifiedNotice(w, monitor)
 
 	// Connect to IMAP
@@ -1982,10 +2016,10 @@ func (s *Server) handleAPIInboxScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Also check archive folder if configured
-	if s.config.Inbox.ArchiveFolder != "" {
-		archiveEmails, err := monitor.FetchBrokerEmailsFromFolder(ctx, s.config.Inbox.ArchiveFolder, 7)
+	if cfg.Inbox.ArchiveFolder != "" {
+		archiveEmails, err := monitor.FetchBrokerEmailsFromFolder(ctx, cfg.Inbox.ArchiveFolder, 7)
 		if err != nil {
-			log.Printf("Warning: failed to fetch from archive folder %s: %v", s.config.Inbox.ArchiveFolder, err)
+			log.Printf("Warning: failed to fetch from archive folder %s: %v", cfg.Inbox.ArchiveFolder, err)
 		} else {
 			emails = append(emails, archiveEmails...)
 		}
@@ -2029,11 +2063,11 @@ func (s *Server) handleAPIInboxScan(w http.ResponseWriter, r *http.Request) {
 
 	// Auto-archive processed emails to the Eraser folder. Only messages
 	// fetched from the inbox are moved (UIDs are per-folder).
-	if s.config.Inbox.AutoArchive {
-		if n, err := monitor.ArchiveEmails(emails, s.config.Inbox.ArchiveFolder); err != nil {
+	if cfg.Inbox.AutoArchive {
+		if n, err := monitor.ArchiveEmails(emails, cfg.Inbox.ArchiveFolder); err != nil {
 			log.Printf("Warning: failed to archive emails: %v", err)
 		} else if n > 0 {
-			log.Printf("Archived %d emails to %s folder", n, s.config.Inbox.ArchiveFolder)
+			log.Printf("Archived %d emails to %s folder", n, cfg.Inbox.ArchiveFolder)
 		}
 	}
 
@@ -2058,8 +2092,9 @@ func (s *Server) handleAPIInboxScan(w http.ResponseWriter, r *http.Request) {
 
 // handleAPIInboxRescan rescans all emails and reclassifies them with the improved classifier
 func (s *Server) handleAPIInboxRescan(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfg()
 	// Check if inbox is configured
-	if s.config == nil || !s.config.Inbox.Enabled {
+	if cfg == nil || !cfg.Inbox.Enabled {
 		w.Write([]byte(`
 			<div class="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-3 rounded">
 				<strong>Inbox monitoring not configured.</strong>
@@ -2083,7 +2118,7 @@ func (s *Server) handleAPIInboxRescan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create inbox monitor
-	monitor := s.newInboxMonitor()
+	monitor := s.newInboxMonitor(cfg)
 	writeUnverifiedNotice(w, monitor)
 
 	// Connect to IMAP with longer timeout for full rescan
@@ -2112,10 +2147,10 @@ func (s *Server) handleAPIInboxRescan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Also check archive folder if configured
-	if s.config.Inbox.ArchiveFolder != "" {
-		archiveEmails, err := monitor.FetchBrokerEmailsFromFolder(ctx, s.config.Inbox.ArchiveFolder, 30)
+	if cfg.Inbox.ArchiveFolder != "" {
+		archiveEmails, err := monitor.FetchBrokerEmailsFromFolder(ctx, cfg.Inbox.ArchiveFolder, 30)
 		if err != nil {
-			log.Printf("Warning: failed to fetch from archive folder %s: %v", s.config.Inbox.ArchiveFolder, err)
+			log.Printf("Warning: failed to fetch from archive folder %s: %v", cfg.Inbox.ArchiveFolder, err)
 		} else {
 			emails = append(emails, archiveEmails...)
 		}
@@ -2192,6 +2227,7 @@ func (s *Server) handleAPIInboxRescan(w http.ResponseWriter, r *http.Request) {
 
 // handleAPIReclassify reclassifies all existing database records using subject-only patterns
 func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfg()
 	if s.historyStore == nil {
 		w.Write([]byte(`
 			<div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
@@ -2231,10 +2267,10 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 
 	// If there are records missing bodies, try to fetch from IMAP
 	var bodiesUpdated int
-	if missingBodies > 0 && s.config.Inbox.Server != "" && s.brokerDB != nil {
+	if missingBodies > 0 && cfg != nil && cfg.Inbox.Server != "" && s.brokerDB != nil {
 		log.Printf("Found %d records missing email bodies, fetching from IMAP...", missingBodies)
 
-		monitor := s.newInboxMonitor()
+		monitor := s.newInboxMonitor(cfg)
 
 		ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 		defer cancel()
@@ -2256,8 +2292,8 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Also fetch from archive folder if configured
-			if s.config.Inbox.ArchiveFolder != "" {
-				archiveEmails, err := monitor.FetchBrokerEmailsFromFolder(ctx, s.config.Inbox.ArchiveFolder, 30)
+			if cfg.Inbox.ArchiveFolder != "" {
+				archiveEmails, err := monitor.FetchBrokerEmailsFromFolder(ctx, cfg.Inbox.ArchiveFolder, 30)
 				if err != nil {
 					log.Printf("Warning: failed to fetch from archive folder: %v", err)
 				} else {

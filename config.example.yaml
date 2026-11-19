@@ -50,6 +50,15 @@ options:
   # Delay between emails in milliseconds (avoid spam filters)
   rate_limit_ms: 2000
 
+  # Max successful sends per rolling 24 hours, counting earlier runs and the
+  # web UI (default 250; Gmail allows ~500/day)
+  # daily_limit: 250
+
+  # Skip brokers you successfully sent to within this many days (default 30).
+  # Brokers have up to 45 days to respond under CCPA. `send --force-resend`
+  # ignores this.
+  # resend_after_days: 30
+
   # Only send to brokers in these regions (optional)
   # regions:
   #   - us

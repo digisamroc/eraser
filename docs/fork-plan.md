@@ -153,8 +153,9 @@ Status: done.
 5. Never resume a send job automatically. Show "resume N remaining?" in the UI.
    The daily limit is persisted per calendar day and survives restarts.
    - verify: a test shows a restart on the same day doesn't exceed the limit.
-6. Make web sends use the configured template, `excluded_brokers` and `regions`.
-   Share one send path with the CLI so they can't drift apart.
+6. Make web sends use the configured template, `excluded_brokers`, `regions`
+   and `resend_after_days`. Share one send path with the CLI (build on
+   `internal/sendplan`) so they can't drift apart.
    - verify: a test shows excluded brokers never reach the sender.
 7. The setup wizard merges into the existing config instead of replacing it.
    Add a disclosure setting to the wizard and settings page. Today
@@ -171,13 +172,32 @@ Status: done.
 
 ## Phase 6: CLI behavior
 
-1. `send` asks for confirmation before sending (shows the count and the
-   disclosed fields) unless `--yes` is passed. Add `--limit`, and skip brokers
-   already sent to within N days (history dedupe).
-2. `send` applies the same persisted daily cap as the web UI.
-3. `init` hides password input (`golang.org/x/term`) and asks for DOB only if
-   it's enabled under `disclose`.
-4. `config.Save` sets file permissions to 0600 even when the file already exists.
+Status: done.
+
+0. Found along the way: `history.GetAllBrokerStatuses` failed whenever any
+   history existed (SQLite returns `MAX(sent_at)` as text, which can't be read
+   into a time value). The web UI ignored the error, so every broker showed
+   "never sent" and "Send all" (default filter: pending) resent to all of
+   them. This is likely upstream PR #13. Fixed by parsing times in Go, which
+   also compares correctly across time zones.
+   - verify: a round-trip test fails on the old code and passes on the new.
+1. `send` asks for confirmation (count and disclosed fields), and refuses when
+   stdin isn't a terminal unless `--yes` is passed. Added `--limit` and
+   `--force-resend`. It skips brokers sent to successfully within
+   `options.resend_after_days` (default 30). It stops if a history write
+   fails, and Ctrl-C stops between brokers.
+2. Daily cap: `options.daily_limit` (default 250) per rolling 24h, counted
+   from history, so restarts and mixing CLI and web sends can't exceed it.
+   Shared logic lives in `internal/sendplan`; the web job uses the same
+   history count.
+3. `init` hides the app password. (`init` never asked for DOB, so nothing to
+   change there.)
+4. `config.Save` chmods an existing file to 0600.
+
+Not done here (Phase 5, item 6): web "Send all" doesn't apply the
+resend-after rule yet. Its default "pending" filter only targets never-sent
+brokers, but choosing the "sent" filter can resend. Moving it onto
+`sendplan` fixes that.
 
 ## Phase 7: Docs and cleanup
 

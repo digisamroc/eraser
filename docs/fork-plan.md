@@ -91,6 +91,32 @@ Status: done.
 
 ## Phase 3: Inbox safety (`monitor`, scan, `cleanup-bounces`)
 
+Status: done. All items below, plus:
+- Found: `broker_responses` had no `email_body` column, yet every insert
+  wrote one. So on any database this code created, **inbox monitoring never
+  stored a response** (the web scan ignored the error). A migration adds the
+  column. Response timestamps also never parsed; that's fixed with the
+  Phase 6 time parser.
+- Item 3 went further than planned. Instead of IMAP `FROM` searches (which
+  would need ~600 OR terms), fetching is two-pass: envelopes only, then
+  `BODY.PEEK[]` bodies only for broker matches. Mailboxes are opened
+  read-only (EXAMINE).
+- Unauthenticated mail doesn't change pipeline status, and the "Eraser
+  test email" shortcut requires authentication. Otherwise a spoofed "your
+  data was removed" email could mark a broker done.
+- Responses are deduplicated (`inbox.Record`), so scanning twice no longer
+  stores everything twice.
+- Category ties are resolved in a fixed order (they used to depend on random
+  map iteration).
+- verify: an in-process IMAP server (go-imap memory backend) with a
+  recording wrapper. Reintroducing each bug (no PEEK, bodies for all mail,
+  folder-blind archive, trusting a forged lower header, Gmail matching) makes
+  a test fail.
+- Known limitation: when the server lacks MOVE, archiving falls back to
+  COPY + `\Deleted` + EXPUNGE, and a plain EXPUNGE also removes other
+  messages already flagged `\Deleted` in that folder. Gmail and Outlook
+  support MOVE.
+
 0. Flag broker replies that ask for more identifying information, so the user
    can add a per-broker `disclose` override (Phase 2). Match replies to sent
    requests with `In-Reply-To` against the stored Message-ID, which is stronger

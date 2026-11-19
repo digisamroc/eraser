@@ -272,6 +272,17 @@ The workflow runs on the 1st of every month. You can also trigger it manually fr
 
 ---
 
+## Inbox Monitoring (optional)
+
+`eraser monitor`, and "Scan inbox" in the web UI, read broker replies over IMAP and sort them as done, form required, confirmation needed, more info required, rejected, or pending. They need an inbox app password in `config.yaml` (Settings in the web UI). Safeguards:
+
+- **Read-only.** Mailboxes are opened read-only. Nothing is marked as read, and nothing is moved unless you turn on `auto_archive`.
+- **Broker mail only.** For recent mail, only the sender and subject are fetched. Full message bodies are downloaded only for messages from a registered broker domain, or replies to one of your sent requests (matched by Message-ID). Personal mailbox domains like Gmail never count as brokers.
+- **Verified senders only.** Links are only taken from mail your provider verified as genuinely from that sender (DMARC, or aligned DKIM, in the `Authentication-Results` header). Anything else is saved for your review with its links dropped, and doesn't change a broker's status. A spoofed "broker" email can't feed a link to `fill` or `confirm`.
+- **Stored text is capped.** Broker reply text is stored locally (capped at 64 KB) only so replies can be reclassified later.
+
+If a broker replies that it needs more information to find you, the reply is flagged as "info required". You can then add a per-broker `disclose` override (see "What Gets Sent").
+
 ## Security Notes
 
 - **Your config file contains personal data.** Don't commit it to git. The file is created with restricted permissions (readable only by you).

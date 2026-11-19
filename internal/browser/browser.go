@@ -3,16 +3,20 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 
 	"github.com/eraser-privacy/eraser/internal/config"
 )
+
+// ErrNoSubmitButton means no submit control was found; the form is filled
+// but must be submitted by hand.
+var ErrNoSubmitButton = errors.New("no submit button found; review and submit the form manually")
 
 // Browser wraps chromedp for headless Chrome automation
 type Browser struct {
@@ -59,10 +63,11 @@ type FormResult struct {
 	CaptchaType     string
 	ScreenshotPath  string
 	ErrorMessage    string
-	SubmitAttempted bool
+	SubmitAttempted bool // a submit control was actually clicked
 }
 
-// New creates a new Browser instance
+// New starts a browser. The browser lives until Close; per-form timeouts in
+// NavigateAndFill only bound that form's actions.
 func New(cfg BrowserConfig, profile *config.Profile) (*Browser, error) {
 	opts := []chromedp.ExecAllocatorOption{
 		chromedp.NoFirstRun,
@@ -76,11 +81,18 @@ func New(cfg BrowserConfig, profile *config.Profile) (*Browser, error) {
 		opts = append(opts, chromedp.Headless)
 	}
 
-	// Create allocator context
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
-
-	// Create browser context
 	ctx, cancel := chromedp.NewContext(allocCtx)
+
+	// The first Run on a context starts the browser, which then lives as long
+	// as that context. Start it here, on the long-lived context: starting it
+	// inside NavigateAndFill's timeout context killed the browser after the
+	// first form.
+	if _, err := chromedp.Run(ctx, chromedp.Title()); err != nil {
+		cancel()
+		allocCancel()
+		return nil, fmt.Errorf("failed to start browser: %w", err)
+	}
 
 	return &Browser{
 		allocCtx:    allocCtx,
@@ -109,20 +121,15 @@ func (b *Browser) NavigateAndFill(url string, brokerID string, autoSubmit bool) 
 		BrokerID: brokerID,
 	}
 
-	// Create a context with timeout
+	// Bound this form's actions; derived from the browser's context.
 	ctx, cancel := context.WithTimeout(b.ctx, b.config.Timeout)
 	defer cancel()
 
-	// Navigate to the URL
-	err := chromedp.Run(ctx, chromedp.Navigate(url))
-	if err != nil {
+	if _, err := chromedp.Run(ctx, chromedp.Navigate(url)); err != nil {
 		result.ErrorMessage = fmt.Sprintf("navigation failed: %v", err)
 		return result, err
 	}
-
-	// Wait for page to load
-	err = chromedp.Run(ctx, chromedp.WaitReady("body"))
-	if err != nil {
+	if _, err := chromedp.Run(ctx, chromedp.WaitReady("body")); err != nil {
 		result.ErrorMessage = fmt.Sprintf("page load failed: %v", err)
 		return result, err
 	}
@@ -137,7 +144,6 @@ func (b *Browser) NavigateAndFill(url string, brokerID string, autoSubmit bool) 
 		result.CaptchaFound = true
 		result.CaptchaType = blockingCaptcha.Type
 
-		// Take screenshot of CAPTCHA gate
 		if b.config.ScreenshotDir != "" {
 			screenshotPath, _ := b.takeScreenshot(ctx, brokerID, "captcha_gate")
 			result.ScreenshotPath = screenshotPath
@@ -148,7 +154,6 @@ func (b *Browser) NavigateAndFill(url string, brokerID string, autoSubmit bool) 
 			fmt.Printf("⚠️  Blocking CAPTCHA detected: %s\n", blockingCaptcha.GetCaptchaDescription())
 			fmt.Println("   Please solve the CAPTCHA in the browser window...")
 
-			// Call the callback (e.g., prompt user in terminal)
 			if err := b.config.WaitCallback(); err != nil {
 				result.ErrorMessage = fmt.Sprintf("user cancelled: %v", err)
 				return result, err
@@ -156,9 +161,7 @@ func (b *Browser) NavigateAndFill(url string, brokerID string, autoSubmit bool) 
 
 			// User solved CAPTCHA, wait for page to update and then continue to fill form
 			time.Sleep(2 * time.Second)
-			// Continue to PHASE 2 below (fill form)
 		} else {
-			// No WaitForUser - return with CAPTCHA detected
 			result.ErrorMessage = fmt.Sprintf("Blocking CAPTCHA detected: %s - use --wait flag to solve manually", blockingCaptcha.Type)
 			return result, nil
 		}
@@ -189,27 +192,13 @@ func (b *Browser) NavigateAndFill(url string, brokerID string, autoSubmit bool) 
 			fmt.Printf("⚠️  Form CAPTCHA detected: %s\n", formCaptcha.GetCaptchaDescription())
 			fmt.Println("   Form has been pre-filled. Please solve the CAPTCHA...")
 
-			// Call the callback (e.g., prompt user in terminal)
 			if err := b.config.WaitCallback(); err != nil {
 				result.ErrorMessage = fmt.Sprintf("user cancelled: %v", err)
 				return result, err
 			}
 
-			// User solved CAPTCHA, now submit the form
 			if autoSubmit {
-				err = b.submitForm(ctx)
-				if err != nil {
-					result.ErrorMessage = fmt.Sprintf("submit failed after CAPTCHA: %v", err)
-				} else {
-					result.SubmitAttempted = true
-					result.Success = true
-
-					// Take screenshot of result
-					time.Sleep(2 * time.Second)
-					if b.config.ScreenshotDir != "" {
-						b.takeScreenshot(ctx, brokerID, "submitted")
-					}
-				}
+				b.submitAndRecord(ctx, result, brokerID)
 			}
 			return result, nil
 		}
@@ -225,26 +214,26 @@ func (b *Browser) NavigateAndFill(url string, brokerID string, autoSubmit bool) 
 		result.ScreenshotPath = screenshotPath
 	}
 
-	// Submit form if requested and no CAPTCHA
-	if autoSubmit && !result.CaptchaFound && len(result.FieldsFilled) > 0 {
-		err = b.submitForm(ctx)
-		if err != nil {
-			result.ErrorMessage = fmt.Sprintf("submit failed: %v", err)
-		} else {
-			result.SubmitAttempted = true
-			result.Success = true
-
-			// Take screenshot of result
-			time.Sleep(2 * time.Second)
-			if b.config.ScreenshotDir != "" {
-				b.takeScreenshot(ctx, brokerID, "submitted")
-			}
-		}
-	} else if len(result.FieldsFilled) > 0 {
-		result.Success = true
+	result.Success = len(result.FieldsFilled) > 0
+	if autoSubmit && result.Success {
+		b.submitAndRecord(ctx, result, brokerID)
 	}
-
 	return result, nil
+}
+
+// submitAndRecord clicks the form's submit control and records the outcome.
+func (b *Browser) submitAndRecord(ctx context.Context, result *FormResult, brokerID string) {
+	if err := b.submitForm(ctx); err != nil {
+		result.ErrorMessage = fmt.Sprintf("submit failed: %v", err)
+		return
+	}
+	result.SubmitAttempted = true
+	result.Success = true
+
+	time.Sleep(2 * time.Second)
+	if b.config.ScreenshotDir != "" {
+		_, _ = b.takeScreenshot(ctx, brokerID, "submitted")
+	}
 }
 
 // fillFormFields detects and fills form fields with profile data
@@ -253,51 +242,56 @@ func (b *Browser) fillFormFields(ctx context.Context) *FillResult {
 	return filler.Fill(ctx)
 }
 
-// submitForm attempts to submit the form
-func (b *Browser) submitForm(ctx context.Context) error {
-	// Try common submit button selectors
-	submitSelectors := []string{
-		"button[type='submit']",
-		"input[type='submit']",
-		"button:contains('Submit')",
-		"button:contains('Remove')",
-		"button:contains('Opt Out')",
-		"button:contains('Delete')",
-		"button:contains('Request')",
-		".submit-button",
-		"#submit",
-		"#submit-btn",
-	}
-
-	for _, selector := range submitSelectors {
-		var exists bool
-		err := chromedp.Run(ctx, chromedp.Evaluate(
-			fmt.Sprintf(`document.querySelector("%s") !== null`, selector),
-			&exists,
-		))
-		if err == nil && exists {
-			err = chromedp.Run(ctx, chromedp.Click(selector, chromedp.NodeVisible))
-			if err == nil {
-				return nil
+// markSubmitJS marks the submit control of a form that contains filled
+// fields. Only controls inside such a form count, so a page's unrelated
+// buttons ("Delete my account", "Request a demo") are never clicked. A
+// <button> without a type submits its form; other buttons need submit-like
+// text. Returns false when there is no such control.
+const markSubmitJS = `(function() {
+	var words = /(submit|send|remove|delete|opt[\s-]?out|request|continue)/i;
+	var forms = Array.from(document.forms).filter(function(f) {
+		return Array.from(f.elements).some(function(e) {
+			return (e.tagName === 'INPUT' || e.tagName === 'TEXTAREA') &&
+				!/^(hidden|submit|button|reset|checkbox|radio)$/i.test(e.type) && e.value;
+		});
+	});
+	for (var i = 0; i < forms.length; i++) {
+		var controls = forms[i].querySelectorAll('button, input[type="submit"], [role="button"]');
+		for (var j = 0; j < controls.length; j++) {
+			var el = controls[j];
+			if (el.offsetParent === null || el.disabled) continue;
+			var type = (el.getAttribute('type') || '').toLowerCase();
+			if (type === 'reset') continue;
+			var label = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim();
+			var isSubmit = type === 'submit' || (el.tagName === 'BUTTON' && !el.hasAttribute('type'));
+			if (isSubmit || words.test(label)) {
+				el.setAttribute('data-eraser-submit', '1');
+				return true;
 			}
 		}
 	}
+	return false;
+})()`
 
-	// Try pressing Enter on the last input field
-	err := chromedp.Run(ctx,
-		chromedp.KeyEvent("\r"),
-	)
+// submitForm clicks the form's submit control. It never falls back to
+// pressing Enter, because that can't confirm anything was submitted.
+func (b *Browser) submitForm(ctx context.Context) error {
+	found, err := chromedp.Run(ctx, chromedp.Evaluate[bool](markSubmitJS))
 	if err != nil {
-		return fmt.Errorf("could not find or click submit button")
+		return fmt.Errorf("could not search for a submit button: %w", err)
 	}
-
+	if !found {
+		return ErrNoSubmitButton
+	}
+	if _, err := chromedp.Run(ctx, chromedp.Click(`[data-eraser-submit="1"]`, chromedp.NodeVisible)); err != nil {
+		return fmt.Errorf("could not click the submit button: %w", err)
+	}
 	return nil
 }
 
 // takeScreenshot captures the current page state
 func (b *Browser) takeScreenshot(ctx context.Context, brokerID, suffix string) (string, error) {
-	var buf []byte
-	err := chromedp.Run(ctx, chromedp.FullScreenshot(&buf, 90))
+	buf, err := chromedp.Run(ctx, chromedp.FullScreenshot(90))
 	if err != nil {
 		return "", err
 	}
@@ -315,28 +309,4 @@ func (b *Browser) takeScreenshot(ctx context.Context, brokerID, suffix string) (
 	}
 
 	return filename, nil
-}
-
-// GetPageHTML returns the current page HTML
-func (b *Browser) GetPageHTML(ctx context.Context) (string, error) {
-	var html string
-	err := chromedp.Run(ctx, chromedp.OuterHTML("html", &html))
-	return html, err
-}
-
-// GetPageTitle returns the current page title
-func (b *Browser) GetPageTitle(ctx context.Context) (string, error) {
-	var title string
-	err := chromedp.Run(ctx, chromedp.Title(&title))
-	return title, err
-}
-
-// WaitForNavigation waits for page navigation to complete
-func (b *Browser) WaitForNavigation(ctx context.Context) error {
-	return chromedp.Run(ctx, chromedp.WaitReady("body"))
-}
-
-// EnablePageEvents enables page lifecycle event monitoring
-func (b *Browser) EnablePageEvents(ctx context.Context) error {
-	return chromedp.Run(ctx, page.Enable())
 }

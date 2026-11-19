@@ -95,8 +95,7 @@ func detectRecaptchaV2(ctx context.Context) CaptchaInfo {
 		return {found: false};
 	})()`
 
-	var result map[string]interface{}
-	err := chromedp.Run(ctx, chromedp.Evaluate(js, &result))
+	result, err := chromedp.Run(ctx, chromedp.Evaluate[map[string]interface{}](js))
 	if err != nil {
 		return CaptchaInfo{}
 	}
@@ -143,8 +142,7 @@ func detectRecaptchaV3(ctx context.Context) CaptchaInfo {
 		return {found: false};
 	})()`
 
-	var result map[string]interface{}
-	err := chromedp.Run(ctx, chromedp.Evaluate(js, &result))
+	result, err := chromedp.Run(ctx, chromedp.Evaluate[map[string]interface{}](js))
 	if err != nil {
 		return CaptchaInfo{}
 	}
@@ -185,8 +183,7 @@ func detectHCaptcha(ctx context.Context) CaptchaInfo {
 		return {found: false};
 	})()`
 
-	var result map[string]interface{}
-	err := chromedp.Run(ctx, chromedp.Evaluate(js, &result))
+	result, err := chromedp.Run(ctx, chromedp.Evaluate[map[string]interface{}](js))
 	if err != nil {
 		return CaptchaInfo{}
 	}
@@ -228,8 +225,7 @@ func detectTurnstile(ctx context.Context) CaptchaInfo {
 		return {found: false};
 	})()`
 
-	var result map[string]interface{}
-	err := chromedp.Run(ctx, chromedp.Evaluate(js, &result))
+	result, err := chromedp.Run(ctx, chromedp.Evaluate[map[string]interface{}](js))
 	if err != nil {
 		return CaptchaInfo{}
 	}
@@ -265,8 +261,7 @@ func detectFunCaptcha(ctx context.Context) CaptchaInfo {
 		return {found: false};
 	})()`
 
-	var result map[string]interface{}
-	err := chromedp.Run(ctx, chromedp.Evaluate(js, &result))
+	result, err := chromedp.Run(ctx, chromedp.Evaluate[map[string]interface{}](js))
 	if err != nil {
 		return CaptchaInfo{}
 	}
@@ -309,8 +304,7 @@ func detectCloudflareChallenge(ctx context.Context) CaptchaInfo {
 		return {found: false};
 	})()`
 
-	var result map[string]interface{}
-	err := chromedp.Run(ctx, chromedp.Evaluate(js, &result))
+	result, err := chromedp.Run(ctx, chromedp.Evaluate[map[string]interface{}](js))
 	if err != nil {
 		return CaptchaInfo{}
 	}
@@ -360,8 +354,7 @@ func detectGenericCaptcha(ctx context.Context) CaptchaInfo {
 		return {found: false};
 	})()`
 
-	var result map[string]interface{}
-	err := chromedp.Run(ctx, chromedp.Evaluate(js, &result))
+	result, err := chromedp.Run(ctx, chromedp.Evaluate[map[string]interface{}](js))
 	if err != nil {
 		return CaptchaInfo{}
 	}

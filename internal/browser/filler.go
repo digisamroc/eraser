@@ -250,26 +250,21 @@ func (f *FormFiller) tryFillField(ctx context.Context, mapping FieldMapping) boo
 // fillSelector attempts to fill a specific CSS selector
 func (f *FormFiller) fillSelector(ctx context.Context, selector string, value string) bool {
 	// Check if element exists and is visible
-	var exists bool
-	err := chromedp.Run(ctx, chromedp.Evaluate(
+	exists, err := chromedp.Run(ctx, chromedp.Evaluate[bool](
 		fmt.Sprintf(`(function() {
 			var el = document.querySelector("%s");
 			return el !== null && el.offsetParent !== null;
 		})()`, escapeSelector(selector)),
-		&exists,
 	))
-
 	if err != nil || !exists {
 		return false
 	}
 
 	// Clear existing value and fill
-	err = chromedp.Run(ctx,
+	return chromedp.Do(ctx,
 		chromedp.Clear(selector),
 		chromedp.SendKeys(selector, value),
-	)
-
-	return err == nil
+	) == nil
 }
 
 // fillByPattern searches for fields matching patterns
@@ -313,8 +308,7 @@ func (f *FormFiller) fillByPattern(ctx context.Context, mapping FieldMapping) bo
 		return {found: false};
 	})()`, patternsJS)
 
-	var result map[string]interface{}
-	err := chromedp.Run(ctx, chromedp.Evaluate(js, &result))
+	result, err := chromedp.Run(ctx, chromedp.Evaluate[map[string]interface{}](js))
 	if err != nil {
 		return false
 	}
@@ -330,96 +324,6 @@ func (f *FormFiller) fillByPattern(ctx context.Context, mapping FieldMapping) bo
 	}
 
 	return f.fillSelector(ctx, selector, mapping.ProfileValue)
-}
-
-// FillDropdown fills a select/dropdown field
-func (f *FormFiller) FillDropdown(ctx context.Context, selector string, value string) bool {
-	// Try to match by value or text
-	js := fmt.Sprintf(`(function() {
-		var select = document.querySelector("%s");
-		if (!select) return false;
-
-		var value = "%s".toLowerCase();
-		for (var i = 0; i < select.options.length; i++) {
-			var opt = select.options[i];
-			if (opt.value.toLowerCase() === value ||
-				opt.text.toLowerCase() === value ||
-				opt.value.toLowerCase().includes(value) ||
-				opt.text.toLowerCase().includes(value)) {
-				select.value = opt.value;
-				select.dispatchEvent(new Event('change', { bubbles: true }));
-				return true;
-			}
-		}
-		return false;
-	})()`, escapeSelector(selector), value)
-
-	var success bool
-	err := chromedp.Run(ctx, chromedp.Evaluate(js, &success))
-	return err == nil && success
-}
-
-// CheckCheckbox checks a checkbox if found
-func (f *FormFiller) CheckCheckbox(ctx context.Context, selector string) bool {
-	js := fmt.Sprintf(`(function() {
-		var el = document.querySelector("%s");
-		if (el && el.type === 'checkbox' && !el.checked) {
-			el.checked = true;
-			el.dispatchEvent(new Event('change', { bubbles: true }));
-			return true;
-		}
-		return false;
-	})()`, escapeSelector(selector))
-
-	var success bool
-	err := chromedp.Run(ctx, chromedp.Evaluate(js, &success))
-	return err == nil && success
-}
-
-// DetectFormFields returns a list of all form fields on the page
-func (f *FormFiller) DetectFormFields(ctx context.Context) ([]FormField, error) {
-	js := `(function() {
-		var fields = [];
-		var inputs = document.querySelectorAll('input, select, textarea');
-		for (var i = 0; i < inputs.length; i++) {
-			var el = inputs[i];
-			if (el.type === 'hidden' || el.type === 'submit' || el.type === 'button') continue;
-
-			var label = '';
-			if (el.id) {
-				var labelEl = document.querySelector('label[for="' + el.id + '"]');
-				if (labelEl) label = labelEl.textContent.trim();
-			}
-
-			fields.push({
-				tag: el.tagName.toLowerCase(),
-				type: el.type || '',
-				name: el.name || '',
-				id: el.id || '',
-				placeholder: el.placeholder || '',
-				label: label,
-				required: el.required,
-				visible: el.offsetParent !== null
-			});
-		}
-		return fields;
-	})()`
-
-	var fields []FormField
-	err := chromedp.Run(ctx, chromedp.Evaluate(js, &fields))
-	return fields, err
-}
-
-// FormField represents a detected form field
-type FormField struct {
-	Tag         string `json:"tag"`
-	Type        string `json:"type"`
-	Name        string `json:"name"`
-	ID          string `json:"id"`
-	Placeholder string `json:"placeholder"`
-	Label       string `json:"label"`
-	Required    bool   `json:"required"`
-	Visible     bool   `json:"visible"`
 }
 
 // escapeSelector escapes special characters in CSS selectors for JS strings

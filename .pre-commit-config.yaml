@@ -65,6 +65,7 @@ repos:
       - id: go-test
         name: go test
         language: system
-        entry: go test ./...
+        # -short skips the real-browser tests; CI runs everything.
+        entry: go test -short ./...
         types: [go]
         pass_filenames: false

@@ -343,6 +343,19 @@ fix is checked by reverting it and seeing the test fail.
 
 ### 9A: Inbox trust
 
+Status: done. Items 1–4. Notes:
+- Reclassify's body backfill also paired a fetched body with the row's old
+  flag; it now goes through `inbox.Record` too.
+- Bounces are tied to a sent Message-ID from the returned message,
+  `In-Reply-To` or `References`. `VerifyBounce` drops the regex recipient
+  guess; the report's `Final-Recipient` is checked when present.
+- `monitor`, `cleanup-bounces` and the web scans warn when no authserv-id is
+  known.
+- verify: each fix reverted on its own makes a test fail, except removing
+  the explicit `Known()` guard in `Authenticated`, which the authserv-id
+  comparison already covers; `TestFetchFailsClosedWithoutAuthServ` catches
+  the monitor ignoring its config.
+
 1. **A stored body can come from a different email than its authenticated
    flag.** `inbox.Record` matches by (broker, subject). On a match it
    overwrites type, URLs and `authenticated`, but keeps the old body if one

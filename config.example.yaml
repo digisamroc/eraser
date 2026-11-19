@@ -69,6 +69,21 @@ options:
   #   - spokeo
   #   - whitepages
 
+# Inbox monitoring for `eraser monitor` and the web UI's "Scan inbox" (optional)
+# inbox:
+#   enabled: true
+#   provider: gmail            # gmail, outlook, or imap
+#   email: you@gmail.com
+#   password: your-app-password
+#   # Which server writes your provider's Authentication-Results header; it is
+#   # how Eraser tells a verified sender from a forged one. Known for gmail and
+#   # outlook. For any other provider, set it to the name at the start of that
+#   # header in a message you received (e.g. "mx.example.net"); until then no
+#   # sender is verified, links are ignored, and bounces can't remove brokers.
+#   # authserv_id: mx.example.net
+#   # server: imap.example.net # needed for provider: imap
+#   # port: 993
+
 # Browser automation for `eraser fill` (optional)
 # pipeline:
 #   browser_headless: true   # false shows the browser window

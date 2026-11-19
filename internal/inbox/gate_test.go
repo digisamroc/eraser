@@ -25,11 +25,13 @@ func TestUnauthenticatedEmailLinksAreDropped(t *testing.T) {
 	}
 }
 
-func TestSpoofedTestEmailIsNotTrusted(t *testing.T) {
-	e := &Email{From: "privacy@acme.example", FromDomain: "acme.example",
-		Subject: "Eraser Test Email", Body: "This is a test email from Eraser to verify your email configuration"}
-	if got := ClassifyResponse(e); got.Type == ResponseSuccess && !got.NeedsReview {
-		t.Fatalf("unverified 'test email' accepted as success: %+v", got)
+// Eraser's own test email goes to the user's address and never matches a
+// broker, so "test email" wording in broker mail means nothing.
+func TestTestEmailWordingIsNotSuccess(t *testing.T) {
+	e := &Email{From: "privacy@acme.example", FromDomain: "acme.example", Authenticated: true,
+		Subject: "Eraser Test Email", Body: "This is a test email. Please confirm: https://acme.example/confirm?token=abc"}
+	if got := ClassifyResponse(e); got.Type == ResponseSuccess {
+		t.Fatalf("broker email with test-email wording classified as success: %+v", got)
 	}
 }
 

@@ -26,48 +26,49 @@ func PipelineStatusFor(t ResponseType) (history.PipelineStatus, bool) {
 	}
 }
 
-// Record stores a classified broker email, updating the stored response if
-// the same email (broker and subject) was recorded before. It returns true
-// when a new response was inserted.
+// Record stores a classified broker email. An email seen before (same
+// Message-ID; same subject when there is none) replaces its stored response
+// in full, so a stored body, its links and its authenticated flag always come
+// from one email. It returns true when a new response was inserted.
 //
 // The broker's pipeline status is only changed for authenticated mail, so a
-// spoofed "your data was removed" email can't mark a broker as done.
+// spoofed "your data was removed" email can't mark a broker as done, and an
+// unauthenticated email never replaces an authenticated one.
 func Record(store *history.Store, e *Email, c ClassifiedResponse) (bool, error) {
 	body := e.Body
 	if body == "" {
 		body = e.HTMLBody
 	}
+	resp := &history.BrokerResponse{
+		BrokerID:      e.BrokerID,
+		BrokerName:    e.BrokerName,
+		ResponseType:  string(c.Type),
+		EmailFrom:     e.From,
+		EmailSubject:  e.Subject,
+		EmailBody:     body,
+		FormURL:       c.FormURL,
+		ConfirmURL:    c.ConfirmURL,
+		Confidence:    c.Confidence,
+		NeedsReview:   c.NeedsReview,
+		ReceivedAt:    e.ReceivedAt,
+		Authenticated: e.Authenticated,
+		MessageID:     e.MessageID,
+	}
 
-	inserted := false
-	existing, err := store.FindBrokerResponseBySubject(e.BrokerID, e.Subject)
+	existing, err := store.FindBrokerResponse(e.BrokerID, e.MessageID, e.Subject)
 	if err != nil {
 		return false, err
 	}
-	if existing != nil {
-		if err := store.UpdateBrokerResponseClassification(existing.ID, string(c.Type), c.FormURL, c.ConfirmURL,
-			c.Confidence, c.NeedsReview, e.Authenticated); err != nil {
+	inserted := false
+	switch {
+	case existing != nil && existing.Authenticated && !e.Authenticated:
+		return false, nil
+	case existing != nil:
+		if err := store.ReplaceBrokerResponse(existing.ID, resp); err != nil {
 			return false, err
 		}
-		if existing.EmailBody == "" && body != "" {
-			if err := store.UpdateBrokerResponseBody(existing.ID, body); err != nil {
-				return false, err
-			}
-		}
-	} else {
-		if err := store.AddBrokerResponse(&history.BrokerResponse{
-			BrokerID:      e.BrokerID,
-			BrokerName:    e.BrokerName,
-			ResponseType:  string(c.Type),
-			EmailFrom:     e.From,
-			EmailSubject:  e.Subject,
-			EmailBody:     body,
-			FormURL:       c.FormURL,
-			ConfirmURL:    c.ConfirmURL,
-			Confidence:    c.Confidence,
-			NeedsReview:   c.NeedsReview,
-			ReceivedAt:    e.ReceivedAt,
-			Authenticated: e.Authenticated,
-		}); err != nil {
+	default:
+		if err := store.AddBrokerResponse(resp); err != nil {
 			return false, fmt.Errorf("failed to store response from %s: %w", e.BrokerID, err)
 		}
 		inserted = true

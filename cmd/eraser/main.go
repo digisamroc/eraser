@@ -744,6 +744,7 @@ func runMonitor(days int, once bool, watch bool) error {
 
 	// Create inbox monitor; sent Message-IDs let it match replies by In-Reply-To.
 	monitor := inbox.NewMonitor(cfg.Inbox, brokerDB.Brokers)
+	warnIfSendersUnverified(monitor)
 	if ids, err := store.SentMessageIDs(); err == nil {
 		monitor.SetSentMessageIDs(ids)
 	}
@@ -1572,8 +1573,20 @@ func runCleanupBounces(remove bool, days int) error {
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
 
+	// Bounces are matched to the requests they refer to by Message-ID.
+	store, err := history.NewStore(history.DefaultDBPath())
+	if err != nil {
+		return fmt.Errorf("failed to initialize history: %w", err)
+	}
+	defer func() { _ = store.Close() }()
+	sentIDs, err := store.SentMessageIDs()
+	if err != nil {
+		return fmt.Errorf("failed to read sent requests: %w", err)
+	}
+
 	// Create inbox monitor
 	monitor := inbox.NewMonitor(cfg.Inbox, brokerDB.Brokers)
+	warnIfSendersUnverified(monitor)
 
 	// Connect
 	ctx := context.Background()
@@ -1605,25 +1618,14 @@ func runCleanupBounces(remove bool, days int) error {
 	var bouncedBrokers []bouncedBroker
 
 	for _, email := range bounceEmails {
-		// Extract the bounced recipient
-		bouncedRecipient := inbox.ExtractBouncedRecipient(&email)
-		if bouncedRecipient == "" {
-			fmt.Printf("⚠️  Could not extract bounced address from: %s\n", email.Subject)
+		// Only a verified bounce of a request we sent counts; otherwise a
+		// forged "undeliverable" email could remove a broker from your list.
+		b, err := inbox.VerifyBounce(&email, sentIDs, brokerDB)
+		if err != nil {
+			fmt.Printf("⚠️  %s (%s): %v; skipping\n", truncateString(email.Subject, 60), email.From, err)
 			continue
 		}
-
-		// Find the broker
-		b := brokerDB.FindByEmail(bouncedRecipient)
-		if b == nil {
-			fmt.Printf("⚠️  %s - not found in broker database\n", bouncedRecipient)
-			continue
-		}
-		// Only trust bounces your provider verified; otherwise a spoofed
-		// "undeliverable" email could remove a broker from your list.
-		if !email.Authenticated {
-			fmt.Printf("⚠️  %s - bounce notice not verified by your mail provider; skipping\n", bouncedRecipient)
-			continue
-		}
+		bouncedRecipient := b.Email
 
 		fmt.Printf("❌ %s\n", bouncedRecipient)
 		fmt.Printf("   Broker: %s (%s)\n", b.Name, b.ID)
@@ -1680,6 +1682,16 @@ func runCleanupBounces(remove bool, days int) error {
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("✓ Removed %d broker(s); exclusions recorded in %s\n", before-len(brokerDB.Brokers), manualPath(brokerPath))
 	return nil
+}
+
+// warnIfSendersUnverified explains that, without a known authserv-id, no
+// email counts as verified.
+func warnIfSendersUnverified(m *inbox.Monitor) {
+	if !m.VerifiesSenders() {
+		fmt.Println("⚠️  Can't verify senders: set inbox.authserv_id in config.yaml (see config.example.yaml).")
+		fmt.Println("   Until then, links in broker email are ignored and bounces can't remove brokers.")
+		fmt.Println()
+	}
 }
 
 // truncateString truncates a string to the specified length

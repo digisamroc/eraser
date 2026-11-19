@@ -371,47 +371,6 @@ func TestSubjectBasedRejectionPatterns(t *testing.T) {
 	}
 }
 
-func TestTestEmailPatterns(t *testing.T) {
-	tests := []struct {
-		name     string
-		subject  string
-		body     string
-		expected ResponseType
-	}{
-		{
-			name:     "Eraser Test Email in subject",
-			subject:  "Eraser Test Email",
-			body:     "",
-			expected: ResponseSuccess,
-		},
-		{
-			name:     "Test email in body",
-			subject:  "Re: Test",
-			body:     "This is a test email from Eraser to verify your email configuration.",
-			expected: ResponseSuccess,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// A genuine test email comes from the user's own address via
-			// their provider, so it is authenticated (see TestSpoofedTestEmailIsNotTrusted).
-			email := &Email{
-				Subject:       tt.subject,
-				Body:          tt.body,
-				Authenticated: true,
-			}
-			result := ClassifyResponse(email)
-			if result.Type != tt.expected {
-				t.Errorf("got %s, want %s (confidence: %.2f)", result.Type, tt.expected, result.Confidence)
-			}
-			if result.NeedsReview {
-				t.Errorf("test email should not need review")
-			}
-		})
-	}
-}
-
 func TestTicketPatterns(t *testing.T) {
 	tests := []struct {
 		name     string

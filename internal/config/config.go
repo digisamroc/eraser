@@ -50,6 +50,10 @@ type InboxConfig struct {
 	Folder        string `yaml:"folder"`         // Folder to monitor (default: "INBOX")
 	AutoArchive   bool   `yaml:"auto_archive"`   // Automatically move processed emails to archive folder
 	ArchiveFolder string `yaml:"archive_folder"` // Folder to archive emails to (default: "Eraser")
+	// AuthServID names the server that writes your provider's
+	// Authentication-Results header (e.g. "mx.google.com"). Known for Gmail
+	// and Outlook; required for any other provider, or no sender is verified.
+	AuthServID string `yaml:"authserv_id,omitempty"`
 }
 
 // Pipeline holds settings for the automation pipeline

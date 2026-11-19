@@ -52,7 +52,7 @@ func TestBrokerResponseRoundTrip(t *testing.T) {
 		BrokerID: "acme", BrokerName: "Acme", ResponseType: "info_required",
 		EmailFrom: "privacy@acme.example", EmailSubject: "Re: request", EmailBody: "Please send your address.",
 		FormURL: "https://acme.example/dsr", Confidence: 0.8, NeedsReview: true, Authenticated: true,
-		ReceivedAt: received,
+		ReceivedAt: received, MessageID: "<r1@acme.example>",
 	}
 	if err := s.AddBrokerResponse(in); err != nil {
 		t.Fatalf("AddBrokerResponse: %v", err)
@@ -62,7 +62,8 @@ func TestBrokerResponseRoundTrip(t *testing.T) {
 		t.Fatalf("GetAllBrokerResponses = %v, %v", all, err)
 	}
 	got := all[0]
-	if got.EmailBody != in.EmailBody || !got.Authenticated || got.FormURL != in.FormURL || !got.NeedsReview {
+	if got.EmailBody != in.EmailBody || !got.Authenticated || got.FormURL != in.FormURL || !got.NeedsReview ||
+		got.MessageID != in.MessageID {
 		t.Errorf("round trip lost fields: %+v", got)
 	}
 	if d := got.ReceivedAt.Sub(received); d < -time.Second || d > time.Second {
@@ -73,8 +74,8 @@ func TestBrokerResponseRoundTrip(t *testing.T) {
 	}
 }
 
-// Databases created by older versions have no email_body or authenticated
-// column; opening them must add both.
+// Databases created by older versions have no email_body, authenticated or
+// message_id column; opening them must add all three.
 func TestMigrateAddsBrokerResponseColumns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "history.db")
 	old, err := sql.Open("sqlite", path)
@@ -95,7 +96,8 @@ func TestMigrateAddsBrokerResponseColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := s.AddBrokerResponse(&BrokerResponse{BrokerID: "a", BrokerName: "A", ResponseType: "success", EmailBody: "b"}); err != nil {
+	if err := s.AddBrokerResponse(&BrokerResponse{BrokerID: "a", BrokerName: "A", ResponseType: "success", EmailBody: "b",
+		Authenticated: true, MessageID: "<m@a.example>"}); err != nil {
 		t.Fatalf("insert into migrated table: %v", err)
 	}
 }

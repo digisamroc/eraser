@@ -1,0 +1,95 @@
+# Hand-maintained overlay applied on top of the California CPPA data broker
+# registry when generating data/brokers.yaml. Regenerate after editing:
+#
+#   go run ./cmd/registry-import
+#
+# Every entry must cite an https source_url so it can be re-checked later.
+# Personal mailboxes (Gmail, Outlook, etc.) are always rejected.
+#
+#   add:       brokers that are not in the registry
+#   overrides: changes to a registry entry, matched by email
+#              (category, opt_out_url, notes, tags: [form-only])
+#   exclude:   registry entries to drop, matched by email (reason required)
+
+add: []
+
+overrides:
+  # Reported in upstream PR #29 (one user's real sends, not independently
+  # verified): these registered addresses do not process emailed requests.
+  # Each is marked form-only so `send` skips it and points to the form.
+  - email: dataprivacy@liftbasedata.com
+    tags: [form-only]
+    opt_out_url: https://www.liftbasedata.com/your-privacy-choices
+    notes: Email is not processed; use the privacy-choices form.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: privacy@epsilon.com
+    tags: [form-only]
+    opt_out_url: https://legal.epsilon.com/dsr/
+    notes: Email is not processed; use the DSR form. Lotame merged into Epsilon.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: privacy@transunion.com
+    tags: [form-only]
+    opt_out_url: https://www.transunion.com/consumer-privacy
+    notes: Email is not processed; use the consumer-privacy page.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: privacy.department@nielsen.com
+    tags: [form-only]
+    opt_out_url: https://priv-policy.imrworldwide.com/priv/optout/digital-optout.html
+    notes: Email is not processed; use Nielsen's digital opt-out.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: privacy@33across.com
+    tags: [form-only]
+    opt_out_url: https://www.33across.com/opt-out
+    notes: Email is not processed; use the opt-out page.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: privacy@affinitysolutions.com
+    tags: [form-only]
+    opt_out_url: https://affinitysolutions-privacy.my.onetrust.com/webform/a564cfa1-53bf-4c10-bf95-cd907432d7e8/7e4e6bf3-6562-454e-8c73-6a7bd1f4b336
+    notes: Email is not processed; use the OneTrust form.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: privacy.officer@belardiwong.com
+    tags: [form-only]
+    opt_out_url: https://privacyportal.onetrust.com/webform/3d2d5e0c-bd98-46b8-906c-ede68a6f6a80/400f54ed-fcbb-4749-ab5b-32f491c72390
+    notes: Inbox is not monitored; use the OneTrust deletion form.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: requests@apollointeractive.com
+    tags: [form-only]
+    opt_out_url: https://www.apollointeractive.com/data-rights.php
+    notes: Email is not processed; use the data-rights page.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: dataprotectionofficer@iss-stoxx.com
+    tags: [form-only]
+    opt_out_url: https://www.issgovernance.com/privacy-legal/ccpa/
+    notes: Email is not processed; use the CCPA page.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: legal@hightouch.com
+    tags: [form-only]
+    opt_out_url: https://preferences.hightouch.com/
+    notes: Email is not processed; use the preferences page.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: privacy@crexi.com
+    tags: [form-only]
+    opt_out_url: https://crexi.bigidprivacy.cloud/consumer/#/o2TCsG9LJ7
+    notes: Email is not processed; use the BigID privacy form.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: privacy@datadecisionsgroup.com
+    tags: [form-only]
+    opt_out_url: https://datadecisionsgroup.com/preferences
+    notes: Email is not processed; use the preferences page.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: usprivacyquestions@deloitte.com
+    tags: [form-only]
+    opt_out_url: https://datasubject.deloitte.com/request-form
+    notes: Email is not processed; use the data-subject request form.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: privacy@demandbase.com
+    tags: [form-only]
+    notes: Email is not processed; use their privacy page (registry link). They may require a business email.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+  - email: privacy@dstillery.com
+    tags: [form-only]
+    opt_out_url: https://dstillery.com/do-not-sell-my-personal-information/
+    notes: Email is not processed; use the do-not-sell page.
+    source_url: https://github.com/digisamroc/eraser/pull/29
+
+exclude: []

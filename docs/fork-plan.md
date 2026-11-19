@@ -333,6 +333,172 @@ Status: done.
 Upstream looks inactive. We can still open small, separate PRs to upstream,
 e.g. the freemail fix or the registry importer, if you want to.
 
+## Phase 9: Second review (2026-11-19)
+
+A full re-review after Phase 7. Build, vet, `go test -short ./...` and
+`scripts/govulncheck.sh` pass. Stages 9A–9F below are one PR each, in this
+order: inbox trust first, then local data, sending, watch mode, browser,
+registry. As before, every fix starts with a failing test, and every security
+fix is checked by reverting it and seeing the test fail.
+
+### 9A: Inbox trust
+
+1. **A stored body can come from a different email than its authenticated
+   flag.** `inbox.Record` matches by (broker, subject). On a match it
+   overwrites type, URLs and `authenticated`, but keeps the old body if one
+   was stored. Reclassify then extracts links from that body under the new
+   flag. Reproduced: a spoofed email followed by an authenticated one with
+   the same subject leaves `authenticated=true` with the spoofed body, and
+   reclassify yields the spoofed confirm URL. The same bug affects real mail:
+   "Re: Personal Data Removal Request" received, then completed, keeps the
+   first body, so reclassify can move a broker back from confirmed to pending.
+   - Fix: add a `message_id` column (migration) and match on Message-ID when
+     present. Whenever a row is updated, replace body, classification, URLs
+     and `authenticated` together, so they always come from one email.
+   - verify: the spoofed-then-real test above (fails today); a
+     "received" then "completed" test keeps "completed" after reclassify;
+     two emails with the same subject but different Message-IDs give two rows.
+2. **`cleanup-bounces --remove` trusts any sender that authenticates its own
+   domain.** `mailer-daemon@attacker.example` with valid DMARC and a body
+   naming `privacy@broker.com` passes, and the broker is excluded for good.
+   - Fix: a bounce counts only if it references a Message-ID we sent (from
+     the DSN's `message/rfc822` or `text/rfc822-headers` part, or
+     `In-Reply-To`/`References`) and the bounced address is the broker we sent
+     that message to. `parseBody` must keep those parts. Still require
+     `Authenticated`.
+   - verify: the forged bounce above → no exclusion; a real Gmail DSN fixture
+     that names a sent Message-ID → exclusion; a DSN that names a sent
+     Message-ID but a different broker address → no exclusion.
+3. **The `Authentication-Results` header's authserv-id is never checked.**
+   If the provider adds no such header, the topmost one is whatever the
+   sender wrote.
+   - Fix: accept only a header whose authserv-id matches the provider
+     (`mx.google.com` for Gmail; a new `inbox.authserv_id` setting otherwise).
+     Microsoft's header has no authserv-id, so for `provider: outlook` accept
+     the topmost header without one. For `provider: imap` without
+     `authserv_id`, treat all mail as unauthenticated and say so once.
+   - Document the dependency in `SECURITY.md` under known limitations.
+   - verify: a forged `Authentication-Results: attacker.example; dmarc=pass`
+     as the only header → unauthenticated; Gmail and Outlook fixtures still
+     pass.
+4. Remove the "test email" shortcut in `ClassifyResponse`. Test emails go to
+   the user's own address and never match a broker, so the shortcut only
+   lets broker mail containing "this is a test email" mark a broker
+   confirmed.
+   - verify: an authenticated broker email with that phrase isn't
+     classified as success.
+
+### 9B: Local data permissions
+
+1. **`history.db` is created 0644.** `NewStore` only sets 0700 on a directory
+   it creates; an existing `~/.eraser` keeps its mode, so names and broker
+   email bodies can be world-readable.
+   - Fix: create the database file 0600 before SQLite opens it, tighten an
+     existing file and any `-journal`/`-wal`/`-shm` files to 0600, and chmod
+     `~/.eraser` to 0700 (only that directory, not arbitrary parent dirs of a
+     `--db` path).
+   - verify: a new store → 0600 file; an existing 0644 file in a 0755
+     `~/.eraser` → 0600/0700 after `NewStore`.
+2. `config.Save` writes in place: a crash leaves a truncated config, and an
+   existing 0644 file holds the new contents before the chmod. Write to a
+   0600 temp file in the same directory and rename.
+   - verify: saving over a 0644 file never exposes contents with 0644 (the
+     temp file is 0600 from creation); the result is 0600.
+
+### 9C: Sending
+
+1. **Two "Send all" requests can start two jobs.** `GetActive` and `Create`
+   are separate steps, and the rate limit allows 30 per minute. Both jobs
+   plan from the same history: every broker gets two emails and the daily
+   cap can be exceeded up to 2×.
+   - Fix: `JobManager.CreateIfIdle` checks and creates under one lock. Also
+     refuse a single "Send" for a broker while a job is running.
+   - verify: N concurrent POSTs with a counting fake sender → one job, each
+     broker sent once (run with `-race`).
+2. **An accepted message can be recorded as failed.** If `client.Quit()`
+   fails after `DATA` was accepted, `deliver` returns an error, so the next
+   run resends.
+   - Fix: once the `DATA` reply is 250, ignore the `QUIT` result.
+   - verify: a fake server that drops the connection on `QUIT` → success,
+     recorded as sent.
+3. `use_tls: false` (or leaving it out) sends personal data in plaintext
+   whenever there's no username. `Validate` rejects it unless the host is
+   loopback.
+   - verify: config tests for `smtp.example.com` (rejected) and
+     `127.0.0.1` (allowed).
+4. `sanitizeSMTPError` reports a recipient rejection as "check your
+   configuration". Keep the stage and reply code ("recipient rejected (550)")
+   for `RCPT`/`DATA` errors; keep hiding auth details.
+   - verify: a fake server rejecting `RCPT` with 550 → that text in the
+     history record.
+
+### 9D: Watch mode
+
+1. **`monitor --watch` will probably deadlock.** go-imap v1 blocks on every
+   send to `client.Updates`; `WatchForNewEmails` stops reading the channel
+   while IDLE shuts down and while it fetches. Servers commonly send two
+   notices per new message (EXISTS then RECENT), so the reader stalls. Found
+   by reading go-imap's source; not reproduced yet.
+   - Fix: drain `Updates` in its own goroutine for the life of the watch, and
+     turn mailbox updates into a non-blocking "new mail" signal (a channel
+     with a buffer of 1).
+   - verify: a scripted IMAP server (or the memory backend, if it pushes
+     IDLE updates) sends EXISTS + RECENT, then another EXISTS during the
+     fetch; the watch delivers both messages and stops cleanly on cancel,
+     under a test timeout.
+2. `Monitor.Connect` ignores its context. Dial with `tls.Dialer.DialContext`
+   and wrap with `client.New`, so a slow server can't hang a web scan past
+   its timeout.
+   - verify: connecting to a listener that never answers returns when the
+     context expires.
+
+### 9E: Browser form filling
+
+1. **A later field can overwrite an earlier one.** The filler doesn't track
+   filled elements. With `street_address` disclosed, the address selectors
+   (`input[placeholder*='address' i]`, `input[name*='address']`) match a
+   typical "Email address" field, which is then cleared and filled with the
+   street address. Found by reading the selectors.
+   - Fix: mark each filled element (`data-eraser-filled`) and skip marked
+     elements in both the selector and pattern passes. Run the existence
+     check and the fill against the same element.
+   - verify: real-Chrome test with an "Email address" field before a street
+     address field → each gets its own value.
+2. The URL check and the fill are separate steps; a script redirect between
+   them gets the profile typed into another site. Pass the allowed origin
+   into each field's fill and have the page-side code refuse when
+   `location.origin` differs. Low priority; the window is short.
+   - verify: real-Chrome test with a page that navigates away on a timer
+     → nothing filled on the second site.
+3. `GET /tasks/{id}/helper` marks the task opened, and cross-origin
+   protection doesn't cover GET. Move the update to a POST the page sends
+   on load.
+   - verify: a cross-site GET leaves `opened_at` unset.
+
+### 9F: Registry data
+
+1. **Typo and unregistered domains are trusted.** `OwnsURL` trusts a broker's
+   website and opt-out hosts, and the web UI links to opt-out URLs. Five
+   don't resolve today, four of them registry typos: `www.predactiv.cm`
+   (sharethis), `www.mobiityglobal.com` (r-l-polk), `peopesearcher.cm`
+   (the-people-searchers), `www360mediadirect.com` (subdirect), plus
+   `www.kontextdata.com` (kontext-data). Anyone could register them.
+   - Fix: `-check-mx` also resolves website and opt-out hosts and drops
+     URLs that don't resolve (reported in the summary, like dropped emails).
+     Regenerate `data/brokers.yaml`.
+   - verify: a fixture test where an unresolvable website/opt-out host is
+     dropped; the regenerated file contains none of the five.
+2. Remove `pipeline.auto_confirm` and `pipeline.auto_fill_forms`. Nothing reads
+   them, so setting them suggests automation that doesn't exist. Old configs
+   still load (unknown keys are ignored).
+   - verify: `rg auto_confirm` finds nothing outside the plan.
+
+### Decisions (2026-11-19)
+
+- 9A.3: `provider: imap` without `authserv_id` fails closed: all mail is
+  treated as unauthenticated.
+- 9C.3: plaintext SMTP to a non-loopback host is rejected outright.
+
 ---
 
 ## Decisions (2026-11-18)
@@ -347,3 +513,5 @@ e.g. the freemail fix or the registry importer, if you want to.
 
 0 → 1 → 2 → 6 → 5 → 3 → 4 → 7. Phases 0–2 plus 6 give a trustworthy
 CLI `send` first. The web UI and automation follow.
+
+Phase 9: 9A → 9B → 9C → 9D → 9E → 9F.

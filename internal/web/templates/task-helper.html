@@ -38,7 +38,7 @@
 
             <div class="space-y-3">
                 {{range .OrderedProfile}}
-                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer copy-field" data-value="{{.value}}">
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer copy-field" data-action="copy" data-value="{{.value}}">
                     <div>
                         <span class="text-xs text-gray-500 uppercase tracking-wide">{{.key}}</span>
                         <p class="font-medium text-gray-900">{{.value}}</p>
@@ -127,25 +127,4 @@
     {{end}}
 </div>
 
-<!-- Copy to Clipboard Script -->
-<script>
-document.querySelectorAll('.copy-field').forEach(field => {
-    field.addEventListener('click', async () => {
-        const value = field.dataset.value;
-        try {
-            await navigator.clipboard.writeText(value);
-            // Show feedback
-            const originalBg = field.classList.contains('bg-gray-50') ? 'bg-gray-50' : 'bg-green-50';
-            field.classList.remove('bg-gray-50');
-            field.classList.add('bg-green-100');
-            setTimeout(() => {
-                field.classList.remove('bg-green-100');
-                field.classList.add('bg-gray-50');
-            }, 500);
-        } catch (err) {
-            console.error('Failed to copy:', err);
-        }
-    });
-});
-</script>
 {{end}}

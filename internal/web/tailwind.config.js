@@ -2,8 +2,8 @@
 //   scripts/build-css.sh
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  // Go files are included because some handlers write HTML fragments with classes.
-  content: ['./templates/**/*.html', './*.go'],
+  // Go files and app.js are included because they build HTML with classes.
+  content: ['./templates/**/*.html', './*.go', './static/js/app.js'],
   theme: {
     extend: {
       colors: {

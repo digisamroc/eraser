@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -400,10 +401,11 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 
 		// Content Security Policy: everything is served locally; no third
-		// parties. 'unsafe-inline' scripts remain for the templates' inline
-		// handlers and <script> blocks (see docs/fork-plan.md).
+		// parties. Scripts only from /static (all page behavior is in
+		// static/js/app.js), so injected HTML can't run script. Inline styles
+		// are still allowed: templates use style attributes.
 		csp := "default-src 'self'; " +
-			"script-src 'self' 'unsafe-inline'; " +
+			"script-src 'self'; " +
 			"style-src 'self' 'unsafe-inline'; " +
 			"img-src 'self' data:; " +
 			"font-src 'self'; " +
@@ -462,13 +464,18 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	stats := s.getStats()
+	progress := percent(stats.Sent, stats.TotalBrokers)
 	data := map[string]interface{}{
 		"Title":         "Dashboard",
 		"Profile":       s.config.Profile,
 		"BrokerCount":   len(s.brokerDB.Brokers),
 		"RecentHistory": s.getRecentHistory(10),
-		"Stats":         s.getStats(),
-		"PipelineStats": s.getPipelineStats(),
+		"Stats":         stats,
+		// The progress ring's circle has circumference 283 (r=45).
+		"ProgressPercent": progress,
+		"ProgressOffset":  283 - 283*progress/100,
+		"PipelineStats":   s.getPipelineStats(),
 	}
 
 	s.render(w, "dashboard.html", data)
@@ -519,10 +526,21 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		filteredHistory = allHistory
 	}
 
+	sent, failed := 0, 0
+	for _, h := range filteredHistory {
+		if h.Status == history.StatusSent {
+			sent++
+		} else {
+			failed++
+		}
+	}
 	data := map[string]interface{}{
 		"Title":        "History",
 		"History":      filteredHistory,
 		"StatusFilter": statusFilter,
+		"SentCount":    sent,
+		"FailedCount":  failed,
+		"SuccessRate":  percent(sent, sent+failed),
 	}
 	s.render(w, "history.html", data)
 }
@@ -938,6 +956,14 @@ func (s *Server) processSendJob(job *Job, brokers []broker.Broker, d sendplan.De
 }
 
 // Helper methods
+
+// percent returns part/total as a whole percentage, or 0 when total is 0.
+func percent(part, total int) int {
+	if total == 0 {
+		return 0
+	}
+	return int(math.Round(float64(part) * 100 / float64(total)))
+}
 
 type Stats struct {
 	TotalBrokers int
@@ -2018,7 +2044,7 @@ func (s *Server) handleAPIInboxScan(w http.ResponseWriter, r *http.Request) {
 			</div>
 			<p class="mt-2 text-sm">
 				<a href="/tasks" class="underline font-medium">View pending tasks</a> |
-				<a href="/pipeline" class="underline" onclick="window.location.reload()">Refresh page</a>
+				<a href="/pipeline" class="underline">Refresh page</a>
 			</p>
 		</div>
 	`, len(emails), success, formRequired, confirmRequired, rejected, unknown)
@@ -2152,7 +2178,7 @@ func (s *Server) handleAPIInboxRescan(w http.ResponseWriter, r *http.Request) {
 			</div>
 			<p class="mt-2 text-sm">
 				<a href="/tasks" class="underline font-medium">View action items</a> |
-				<a href="/pipeline" class="underline" onclick="window.location.reload()">Refresh page</a>
+				<a href="/pipeline" class="underline">Refresh page</a>
 			</p>
 		</div>
 	`, len(emails), updated, inserted, success, formRequired, confirmRequired, pending, rejected, unknown)
@@ -2357,7 +2383,7 @@ func (s *Server) handleAPIReclassify(w http.ResponseWriter, r *http.Request) {
 			</div>
 			<p class="mt-2 text-sm">
 				<a href="/tasks" class="underline font-medium">View action items</a> |
-				<a href="/pipeline" class="underline" onclick="window.location.reload()">Refresh page</a>
+				<a href="/pipeline" class="underline">Refresh page</a>
 			</p>
 		</div>
 	`, len(responses), updated, unchanged, pending, rejected, success, formRequired, confirmRequired, unknown)

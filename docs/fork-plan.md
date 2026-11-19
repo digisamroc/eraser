@@ -211,7 +211,8 @@ Status: split into two PRs.
     with SRI. Google Fonts dropped for the system font stack.
   - CSP now has no third parties and no `'unsafe-eval'`. `'unsafe-inline'`
     scripts remain for 27 inline handlers and 11 `<script>` blocks; moving
-    those out (or adding nonces) is a follow-up.
+    those out (or adding nonces) is a follow-up. (Done 2026-11-19: see
+    "Follow-up: no inline scripts".)
   - Saving inbox settings used to wipe folder/archive settings and leave the
     IMAP server and port unset until restart. Fixed.
 - **5B (behavior): done.** Items 5, 6, 7 and 8. Item 4 (local access token)
@@ -586,6 +587,30 @@ Status: done. Items 1 and 2. Notes:
 - 9A.3: `provider: imap` without `authserv_id` fails closed: all mail is
   treated as unauthenticated.
 - 9C.3: plaintext SMTP to a non-loopback host is rejected outright.
+
+## Follow-up: no inline scripts (2026-11-19)
+
+Status: done. The CSP is now `script-src 'self'` (styles still allow
+`'unsafe-inline'`; templates use style attributes).
+- 10 inline `<script>` blocks, 27 template `onclick`s and 3 in Go-built
+  fragments are gone. Page behavior is in `static/js/app.js`, loaded in
+  `<head>` (it sets the theme before first paint); elements declare
+  `data-action` (plus `data-target` / `data-filter`) and one delegated
+  listener runs it, including in content htmx swaps in. The dashboard
+  progress and history counts are computed in Go instead of by scripts.
+- Fixed along the way: the history page put server messages into
+  `innerHTML` (now text); the "Send to All" auth-failure message still
+  suggested Resend, which was removed in Phase 7; `templates/forms.html` was
+  never rendered (`/forms` redirects to `/tasks`) and is deleted.
+- `tailwind.config.js` now scans `static/js/app.js`: the classes moved there
+  would otherwise have been dropped from `app.css` on the next build.
+- verify: a test that the CSP's script-src is `'self'` only; a scan of all
+  templates, `app.js` and Go sources for inline scripts, `on*=` handlers and
+  `javascript:` URLs; a real-Chrome test that loads every page, fails on any
+  CSP violation or script error, and drives each action (theme, settings
+  toggle, clear failed, filters, the helper page's on-load POST, Send to
+  All). Restoring an inline handler or script block, unwiring the actions,
+  or re-adding `'unsafe-inline'` each make a test fail.
 
 ---
 

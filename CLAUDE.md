@@ -78,6 +78,9 @@ Each of these closes a real bug or leak. Tests cover them.
   `127.0.0.1:PORT` (DNS rebinding); `http.CrossOriginProtection` guards
   state-changing requests, so GET handlers must never change state; never
   render stored passwords; no third-party assets (the CSP forbids them).
+  No inline scripts, `on*=` handlers or `javascript:` URLs, in templates or
+  Go-built fragments (`script-src 'self'`): page behavior lives in
+  `static/js/app.js`, wired with `data-action` attributes.
 - **Files:** config and `history.db` 0600 (config saved via temp file and
   rename; the database file is created 0600 before SQLite opens it);
   `~/.eraser` tightened to 0700 by `config.PrepareDir`; screenshots 0700/0600.

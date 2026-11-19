@@ -63,7 +63,8 @@ Cross-origin state-changing requests are rejected
 
 **Compromised third-party code.**
 The web UI loads no external scripts, styles, or fonts, and the CSP forbids
-them. htmx is vendored and verified against the npm release, and CSS is built
+them. It also forbids inline scripts: all page behavior is in
+`static/js/app.js`, so HTML that slipped past escaping couldn't run code. htmx is vendored and verified against the npm release, and CSS is built
 with a pinned, checksum-verified Tailwind CLI. CI runs `govulncheck` (failing on
 any reachable vulnerability) and `gitleaks`.
 
@@ -76,9 +77,9 @@ full bodies are downloaded only for broker messages. Nothing is marked read.
 - **Other local users and processes** can reach the web UI on
   `127.0.0.1:PORT` while it runs; there's no login. Don't run `eraser serve` on
   a shared machine.
-- **Inline scripts:** the web UI's CSP still allows `'unsafe-inline'` scripts
-  (templates use inline handlers). Output escaping by `html/template` is the
-  main XSS defense.
+- **Inline styles:** the web UI's CSP allows inline styles (templates use
+  style attributes), so injected markup could still restyle a page. Scripts
+  are only loaded from `/static` (`script-src 'self'`), so it can't run code.
 - **Plain-text secrets on disk:** app passwords are stored in
   `config.yaml`, protected only by file permissions. Use app passwords, never
   your main password, and revoke them if the file is exposed.
